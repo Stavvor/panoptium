@@ -221,13 +221,13 @@ func TestLLMRequestCompleteEvent(t *testing.T) {
 			Prov:      ProviderOpenAI,
 			AgentInfo: identity,
 		},
-		TotalTokens:   150,
-		TTFT:          100 * time.Millisecond,
-		Duration:      2 * time.Second,
-		TokensPerSec:  75.0,
-		FinishReason:  "stop",
-		InputTokens:   50,
-		OutputTokens:  100,
+		TotalTokens:  150,
+		TTFT:         100 * time.Millisecond,
+		Duration:     2 * time.Second,
+		TokensPerSec: 75.0,
+		FinishReason: "stop",
+		InputTokens:  50,
+		OutputTokens: 100,
 	}
 	if e.EventType() != EventTypeLLMRequestComplete {
 		t.Errorf("EventType() = %q, want %q", e.EventType(), EventTypeLLMRequestComplete)
