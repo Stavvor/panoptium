@@ -1,0 +1,1801 @@
+/*
+Copyright 2026 Cloudaura sp. z o.o.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package extproc
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"sync"
+	"testing"
+	"time"
+
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/panoptium/panoptium/pkg/eventbus"
+	"github.com/panoptium/panoptium/pkg/identity"
+	"github.com/panoptium/panoptium/pkg/observer"
+	"github.com/panoptium/panoptium/pkg/observer/llm"
+)
+
+// startTestServer creates and starts a test gRPC server with the given ExtProcServer,
+// returning a client and cleanup function.
+func startTestServer(t *testing.T, srv *ExtProcServer) (extprocv3.ExternalProcessorClient, func()) {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	extprocv3.RegisterExternalProcessorServer(grpcServer, srv)
+
+	go func() {
+		if err := grpcServer.Serve(lis); err != nil {
+			// Server stopped, expected during cleanup
+		}
+	}()
+
+	conn, err := grpc.NewClient(
+		lis.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		grpcServer.Stop()
+		t.Fatalf("failed to dial: %v", err)
+	}
+
+	client := extprocv3.NewExternalProcessorClient(conn)
+
+	cleanup := func() {
+		conn.Close()
+		grpcServer.Stop()
+	}
+
+	return client, cleanup
+}
+
+// makeHeaderMap creates a HeaderMap proto from key-value pairs.
+func makeHeaderMap(kvs ...string) *corev3.HeaderMap {
+	if len(kvs)%2 != 0 {
+		panic("makeHeaderMap requires even number of arguments")
+	}
+
+	headers := make([]*corev3.HeaderValue, 0, len(kvs)/2)
+	for i := 0; i < len(kvs); i += 2 {
+		headers = append(headers, &corev3.HeaderValue{
+			Key:   kvs[i],
+			Value: kvs[i+1],
+		})
+	}
+
+	return &corev3.HeaderMap{Headers: headers}
+}
+
+// makeOpenAIRequestBody creates a JSON request body for an OpenAI chat completion.
+func makeOpenAIRequestBody(model string, stream bool) []byte {
+	body := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Hello, what is Go?"},
+		},
+		"stream": stream,
+	}
+	data, _ := json.Marshal(body)
+	return data
+}
+
+// makeOpenAISSEChunk creates an SSE-formatted OpenAI streaming chunk.
+func makeOpenAISSEChunk(content string) []byte {
+	chunk := map[string]interface{}{
+		"id": "chatcmpl-test",
+		"choices": []map[string]interface{}{
+			{
+				"delta": map[string]string{
+					"content": content,
+				},
+				"finish_reason": nil,
+			},
+		},
+	}
+	data, _ := json.Marshal(chunk)
+	return []byte(fmt.Sprintf("data: %s\n\n", data))
+}
+
+// makeOpenAISSEDone creates the [DONE] SSE sentinel.
+func makeOpenAISSEDone() []byte {
+	return []byte("data: [DONE]\n\n")
+}
+
+// makeAnthropicRequestBody creates a JSON request body for an Anthropic messages API call.
+func makeAnthropicRequestBody(model string, stream bool) []byte {
+	body := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Tell me about Kubernetes"},
+		},
+		"stream":     stream,
+		"max_tokens": 1024,
+	}
+	data, _ := json.Marshal(body)
+	return data
+}
+
+// setupTestComponents creates all the common test infrastructure.
+func setupTestComponents(t *testing.T) (*eventbus.SimpleBus, *observer.ObserverRegistry, *identity.Resolver, *ExtProcServer) {
+	t.Helper()
+
+	bus := eventbus.NewSimpleBus()
+	registry := observer.NewObserverRegistry()
+
+	llmObs := llm.NewLLMObserver(bus)
+	if err := registry.Register(llmObs, observer.ObserverConfig{
+		Name:      "llm",
+		Priority:  100,
+		Protocol:  eventbus.ProtocolLLM,
+		Providers: []string{eventbus.ProviderOpenAI, eventbus.ProviderAnthropic},
+	}); err != nil {
+		t.Fatalf("failed to register LLM observer: %v", err)
+	}
+
+	podCache := identity.NewPodCache()
+	resolver := identity.NewResolver(podCache)
+
+	srv := NewExtProcServer(registry, resolver, bus)
+
+	return bus, registry, resolver, srv
+}
+
+// TestProcess_BidirectionalStream verifies the ExtProc server handles
+// a full bidirectional stream lifecycle: request headers, request body,
+// response headers, response body chunks, and end-of-stream.
+func TestProcess_BidirectionalStream(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe()
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// 1. Send request headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"content-type", "application/json",
+					"x-panoptium-agent-id", "agent-test",
+					"x-panoptium-client-ip", "10.0.0.1",
+					"x-panoptium-auth-type", "jwt",
+					"x-panoptium-request-id", "req-stream-1",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+
+	// Receive response for request headers
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response for request headers: %v", err)
+	}
+	if resp.GetRequestHeaders() == nil {
+		t.Fatal("expected RequestHeaders response, got something else")
+	}
+
+	// 2. Send request body
+	reqBody := makeOpenAIRequestBody("gpt-4", true)
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        reqBody,
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+
+	// Receive response for request body
+	resp, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response for request body: %v", err)
+	}
+	if resp.GetRequestBody() == nil {
+		t.Fatal("expected RequestBody response, got something else")
+	}
+
+	// 3. Send response headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":status", "200",
+					"content-type", "text/event-stream",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response headers: %v", err)
+	}
+
+	// Receive response for response headers
+	resp, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response for response headers: %v", err)
+	}
+	if resp.GetResponseHeaders() == nil {
+		t.Fatal("expected ResponseHeaders response, got something else")
+	}
+
+	// 4. Send response body chunks
+	chunks := []string{"Hello", " world", "!"}
+	for i, content := range chunks {
+		err = stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_ResponseBody{
+				ResponseBody: &extprocv3.HttpBody{
+					Body:        makeOpenAISSEChunk(content),
+					EndOfStream: i == len(chunks)-1,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to send response body chunk %d: %v", i, err)
+		}
+
+		resp, err = stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive response for body chunk %d: %v", i, err)
+		}
+		if resp.GetResponseBody() == nil {
+			t.Fatalf("expected ResponseBody response for chunk %d, got something else", i)
+		}
+	}
+
+	// Close the send side
+	err = stream.CloseSend()
+	if err != nil {
+		t.Fatalf("failed to close send: %v", err)
+	}
+
+	// Drain events from bus
+	var events []eventbus.Event
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case evt, ok := <-sub.Events():
+			if !ok {
+				goto done
+			}
+			events = append(events, evt)
+		case <-timeout:
+			goto done
+		}
+	}
+done:
+
+	// Verify we got LLMRequestStart event
+	var foundStart bool
+	for _, evt := range events {
+		if evt.EventType() == eventbus.EventTypeLLMRequestStart {
+			foundStart = true
+			if evt.RequestID() != "req-stream-1" {
+				t.Errorf("LLMRequestStart RequestID = %q, want %q", evt.RequestID(), "req-stream-1")
+			}
+		}
+	}
+	if !foundStart {
+		t.Error("expected LLMRequestStart event, but none found")
+	}
+
+	// Verify we got token chunk events
+	var tokenChunks int
+	for _, evt := range events {
+		if evt.EventType() == eventbus.EventTypeLLMTokenChunk {
+			tokenChunks++
+		}
+	}
+	if tokenChunks != 3 {
+		t.Errorf("expected 3 LLMTokenChunk events, got %d", tokenChunks)
+	}
+
+	// Verify we got completion event
+	var foundComplete bool
+	for _, evt := range events {
+		if evt.EventType() == eventbus.EventTypeLLMRequestComplete {
+			foundComplete = true
+			completeEvt, ok := evt.(*eventbus.LLMRequestCompleteEvent)
+			if !ok {
+				t.Error("LLMRequestComplete event is not *LLMRequestCompleteEvent")
+				continue
+			}
+			if completeEvt.OutputTokens != 3 {
+				t.Errorf("OutputTokens = %d, want 3", completeEvt.OutputTokens)
+			}
+		}
+	}
+	if !foundComplete {
+		t.Error("expected LLMRequestComplete event, but none found")
+	}
+}
+
+// TestProcess_RequestHeaderExtraction verifies that request headers are correctly
+// extracted and delegated to the ObserverRegistry for observer selection.
+func TestProcess_RequestHeaderExtraction(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMRequestStart)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers for OpenAI
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"content-type", "application/json",
+					"x-panoptium-agent-id", "test-agent",
+					"x-panoptium-auth-type", "jwt",
+					"x-panoptium-request-id", "req-header-test",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+
+	// Receive response
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+	if resp.GetRequestHeaders() == nil {
+		t.Fatal("expected RequestHeaders response")
+	}
+
+	// Send request body
+	reqBody := makeOpenAIRequestBody("gpt-4", true)
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        reqBody,
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Close and check event
+	stream.CloseSend()
+
+	select {
+	case evt := <-sub.Events():
+		startEvt, ok := evt.(*eventbus.LLMRequestStartEvent)
+		if !ok {
+			t.Fatal("expected *LLMRequestStartEvent")
+		}
+		if startEvt.Protocol() != eventbus.ProtocolLLM {
+			t.Errorf("Protocol = %q, want %q", startEvt.Protocol(), eventbus.ProtocolLLM)
+		}
+		if startEvt.Provider() != eventbus.ProviderOpenAI {
+			t.Errorf("Provider = %q, want %q", startEvt.Provider(), eventbus.ProviderOpenAI)
+		}
+		if startEvt.Model != "gpt-4" {
+			t.Errorf("Model = %q, want %q", startEvt.Model, "gpt-4")
+		}
+		if !startEvt.Stream {
+			t.Error("Stream = false, want true")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for LLMRequestStart event")
+	}
+}
+
+// TestProcess_AgentIdentityExtraction verifies that agent identity is correctly
+// extracted from x-panoptium-* headers and included in all emitted events.
+func TestProcess_AgentIdentityExtraction(t *testing.T) {
+	bus := eventbus.NewSimpleBus()
+	registry := observer.NewObserverRegistry()
+
+	llmObs := llm.NewLLMObserver(bus)
+	registry.Register(llmObs, observer.ObserverConfig{
+		Name:     "llm",
+		Priority: 100,
+	})
+
+	podCache := identity.NewPodCache()
+	podCache.Set("10.0.1.5", identity.PodInfo{
+		Name:      "agent-pod-xyz",
+		Namespace: "ai-workloads",
+		Labels:    map[string]string{"app": "analyzer"},
+	})
+	resolver := identity.NewResolver(podCache)
+
+	srv := NewExtProcServer(registry, resolver, bus)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe()
+	defer bus.Unsubscribe(sub)
+
+	tests := []struct {
+		name           string
+		agentID        string
+		clientIP       string
+		authType       string
+		wantConfidence string
+		wantPodName    string
+	}{
+		{
+			name:           "JWT auth gives high confidence",
+			agentID:        "jwt-agent-1",
+			clientIP:       "10.0.1.5",
+			authType:       "jwt",
+			wantConfidence: eventbus.ConfidenceHigh,
+			wantPodName:    "",
+		},
+		{
+			name:           "Source-IP with cached pod gives medium confidence",
+			agentID:        "pod:10.0.1.5",
+			clientIP:       "10.0.1.5",
+			authType:       "source-ip",
+			wantConfidence: eventbus.ConfidenceMedium,
+			wantPodName:    "agent-pod-xyz",
+		},
+		{
+			name:           "Source-IP without cached pod gives low confidence",
+			agentID:        "pod:10.0.2.99",
+			clientIP:       "10.0.2.99",
+			authType:       "source-ip",
+			wantConfidence: eventbus.ConfidenceLow,
+			wantPodName:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			stream, err := client.Process(ctx)
+			if err != nil {
+				t.Fatalf("failed to open stream: %v", err)
+			}
+
+			reqID := "req-identity-" + tt.name
+			err = stream.Send(&extprocv3.ProcessingRequest{
+				Request: &extprocv3.ProcessingRequest_RequestHeaders{
+					RequestHeaders: &extprocv3.HttpHeaders{
+						Headers: makeHeaderMap(
+							":path", "/v1/chat/completions",
+							":method", "POST",
+							"host", "api.openai.com",
+							"x-panoptium-agent-id", tt.agentID,
+							"x-panoptium-client-ip", tt.clientIP,
+							"x-panoptium-auth-type", tt.authType,
+							"x-panoptium-request-id", reqID,
+						),
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("failed to send request headers: %v", err)
+			}
+
+			_, err = stream.Recv()
+			if err != nil {
+				t.Fatalf("failed to receive response: %v", err)
+			}
+
+			// Send request body to trigger LLMRequestStart event
+			err = stream.Send(&extprocv3.ProcessingRequest{
+				Request: &extprocv3.ProcessingRequest_RequestBody{
+					RequestBody: &extprocv3.HttpBody{
+						Body:        makeOpenAIRequestBody("gpt-4", false),
+						EndOfStream: true,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("failed to send request body: %v", err)
+			}
+			_, err = stream.Recv()
+			if err != nil {
+				t.Fatalf("failed to receive response: %v", err)
+			}
+
+			stream.CloseSend()
+
+			// Check the emitted event's agent identity
+			select {
+			case evt := <-sub.Events():
+				agentInfo := evt.Identity()
+				if agentInfo.Confidence != tt.wantConfidence {
+					t.Errorf("Confidence = %q, want %q", agentInfo.Confidence, tt.wantConfidence)
+				}
+				if agentInfo.ID != tt.agentID {
+					t.Errorf("ID = %q, want %q", agentInfo.ID, tt.agentID)
+				}
+				if agentInfo.PodName != tt.wantPodName {
+					t.Errorf("PodName = %q, want %q", agentInfo.PodName, tt.wantPodName)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for event")
+			}
+
+			// Drain remaining events from this stream
+			drainTimeout := time.After(500 * time.Millisecond)
+			for {
+				select {
+				case <-sub.Events():
+				case <-drainTimeout:
+					goto nextTest
+				}
+			}
+		nextTest:
+		})
+	}
+}
+
+// TestProcess_StreamedRequestBodyAssembly verifies that streamed request body
+// chunks are correctly assembled and parsed.
+func TestProcess_StreamedRequestBodyAssembly(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMRequestStart)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-agent-id", "agent-body-test",
+					"x-panoptium-auth-type", "jwt",
+					"x-panoptium-request-id", "req-body-assembly",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Split the request body into multiple chunks
+	fullBody := makeOpenAIRequestBody("gpt-4-turbo", true)
+	mid := len(fullBody) / 2
+
+	// First chunk (not end of stream)
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        fullBody[:mid],
+				EndOfStream: false,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send first body chunk: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response for first chunk: %v", err)
+	}
+
+	// Second chunk (end of stream)
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        fullBody[mid:],
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send second body chunk: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response for second chunk: %v", err)
+	}
+
+	stream.CloseSend()
+
+	// Verify the assembled body was correctly parsed
+	select {
+	case evt := <-sub.Events():
+		startEvt, ok := evt.(*eventbus.LLMRequestStartEvent)
+		if !ok {
+			t.Fatal("expected *LLMRequestStartEvent")
+		}
+		if startEvt.Model != "gpt-4-turbo" {
+			t.Errorf("Model = %q, want %q", startEvt.Model, "gpt-4-turbo")
+		}
+		if !startEvt.Stream {
+			t.Error("Stream = false, want true")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for LLMRequestStart event")
+	}
+}
+
+// TestProcess_StreamedResponseBody verifies that streamed response body chunks
+// (raw HTTP frames containing SSE data) are correctly parsed and emitted as
+// LLMTokenChunk events.
+func TestProcess_StreamedResponseBody(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMTokenChunk)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-agent-id", "agent-response",
+					"x-panoptium-auth-type", "jwt",
+					"x-panoptium-request-id", "req-response-1",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send request body
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send response headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":status", "200",
+					"content-type", "text/event-stream",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send multiple response body chunks with SSE data
+	tokens := []string{"Go", " is", " a", " programming", " language"}
+	for i, token := range tokens {
+		isLast := i == len(tokens)-1
+		var body []byte
+		if isLast {
+			body = append(makeOpenAISSEChunk(token), makeOpenAISSEDone()...)
+		} else {
+			body = makeOpenAISSEChunk(token)
+		}
+
+		err = stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_ResponseBody{
+				ResponseBody: &extprocv3.HttpBody{
+					Body:        body,
+					EndOfStream: isLast,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to send response body chunk %d: %v", i, err)
+		}
+		_, err = stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive response for chunk %d: %v", i, err)
+		}
+	}
+
+	stream.CloseSend()
+
+	// Collect token chunk events
+	var tokenContents []string
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case evt, ok := <-sub.Events():
+			if !ok {
+				goto verify
+			}
+			chunkEvt, ok := evt.(*eventbus.LLMTokenChunkEvent)
+			if !ok {
+				continue
+			}
+			tokenContents = append(tokenContents, chunkEvt.Content)
+			if len(tokenContents) >= len(tokens) {
+				goto verify
+			}
+		case <-timeout:
+			goto verify
+		}
+	}
+verify:
+
+	if len(tokenContents) != len(tokens) {
+		t.Fatalf("expected %d token chunks, got %d: %v", len(tokens), len(tokenContents), tokenContents)
+	}
+
+	for i, want := range tokens {
+		if tokenContents[i] != want {
+			t.Errorf("token[%d] = %q, want %q", i, tokenContents[i], want)
+		}
+	}
+}
+
+// TestProcess_PassiveMode verifies that all ProcessingResponse messages
+// returned by the server are empty (no mutations to headers or body).
+func TestProcess_PassiveMode(t *testing.T) {
+	_, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Test request headers response is empty (no mutations)
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-request-id", "req-passive",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Verify request headers response has no mutations
+	headersResp := resp.GetRequestHeaders()
+	if headersResp == nil {
+		t.Fatal("expected RequestHeaders response")
+	}
+	if headersResp.GetResponse() != nil {
+		commonResp := headersResp.GetResponse()
+		if commonResp.GetHeaderMutation() != nil {
+			t.Error("expected no header mutations in passive mode")
+		}
+		if commonResp.GetBodyMutation() != nil {
+			t.Error("expected no body mutations in passive mode")
+		}
+	}
+
+	// Test request body response is empty
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+
+	resp, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	bodyResp := resp.GetRequestBody()
+	if bodyResp == nil {
+		t.Fatal("expected RequestBody response")
+	}
+	if bodyResp.GetResponse() != nil {
+		commonResp := bodyResp.GetResponse()
+		if commonResp.GetHeaderMutation() != nil {
+			t.Error("expected no header mutations in passive mode for body")
+		}
+		if commonResp.GetBodyMutation() != nil {
+			t.Error("expected no body mutations in passive mode for body")
+		}
+	}
+
+	// Test response headers response is empty
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":status", "200",
+					"content-type", "text/event-stream",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response headers: %v", err)
+	}
+
+	resp, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	respHeaders := resp.GetResponseHeaders()
+	if respHeaders == nil {
+		t.Fatal("expected ResponseHeaders response")
+	}
+	if respHeaders.GetResponse() != nil {
+		commonResp := respHeaders.GetResponse()
+		if commonResp.GetHeaderMutation() != nil {
+			t.Error("expected no header mutations in passive mode for response headers")
+		}
+	}
+
+	// Test response body response is empty
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{
+				Body:        makeOpenAISSEChunk("test"),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response body: %v", err)
+	}
+
+	resp, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	respBody := resp.GetResponseBody()
+	if respBody == nil {
+		t.Fatal("expected ResponseBody response")
+	}
+	if respBody.GetResponse() != nil {
+		commonResp := respBody.GetResponse()
+		if commonResp.GetBodyMutation() != nil {
+			t.Error("expected no body mutations in passive mode for response body")
+		}
+	}
+
+	// Verify no dynamic metadata or mode override
+	if resp.GetDynamicMetadata() != nil {
+		t.Error("expected no dynamic metadata in passive mode")
+	}
+	if resp.GetModeOverride() != nil {
+		t.Error("expected no mode override in passive mode")
+	}
+
+	stream.CloseSend()
+}
+
+// TestProcess_EndOfStreamComplete verifies that when the stream ends,
+// an LLMRequestComplete event is emitted with correct aggregated metrics
+// and the correct agent identity.
+func TestProcess_EndOfStreamComplete(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMRequestComplete)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Full request lifecycle
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-agent-id", "agent-complete-test",
+					"x-panoptium-auth-type", "jwt",
+					"x-panoptium-request-id", "req-complete-1",
+				),
+			},
+		},
+	})
+	stream.Recv()
+
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	stream.Recv()
+
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(":status", "200", "content-type", "text/event-stream"),
+			},
+		},
+	})
+	stream.Recv()
+
+	// Send 5 token chunks
+	for i := 0; i < 5; i++ {
+		isLast := i == 4
+		var body []byte
+		if isLast {
+			body = append(makeOpenAISSEChunk(fmt.Sprintf("token%d", i)), makeOpenAISSEDone()...)
+		} else {
+			body = makeOpenAISSEChunk(fmt.Sprintf("token%d", i))
+		}
+		stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_ResponseBody{
+				ResponseBody: &extprocv3.HttpBody{
+					Body:        body,
+					EndOfStream: isLast,
+				},
+			},
+		})
+		stream.Recv()
+	}
+
+	stream.CloseSend()
+
+	// Wait for the complete event
+	select {
+	case evt := <-sub.Events():
+		completeEvt, ok := evt.(*eventbus.LLMRequestCompleteEvent)
+		if !ok {
+			t.Fatal("expected *LLMRequestCompleteEvent")
+		}
+		if completeEvt.OutputTokens != 5 {
+			t.Errorf("OutputTokens = %d, want 5", completeEvt.OutputTokens)
+		}
+		if completeEvt.Duration <= 0 {
+			t.Error("Duration should be positive")
+		}
+		if completeEvt.RequestID() != "req-complete-1" {
+			t.Errorf("RequestID = %q, want %q", completeEvt.RequestID(), "req-complete-1")
+		}
+		// Verify agent identity is present
+		agentInfo := completeEvt.Identity()
+		if agentInfo.ID != "agent-complete-test" {
+			t.Errorf("AgentIdentity.ID = %q, want %q", agentInfo.ID, "agent-complete-test")
+		}
+		if agentInfo.Confidence != eventbus.ConfidenceHigh {
+			t.Errorf("AgentIdentity.Confidence = %q, want %q", agentInfo.Confidence, eventbus.ConfidenceHigh)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for LLMRequestComplete event")
+	}
+}
+
+// TestProcess_ConcurrentStreams verifies that multiple simultaneous
+// bidirectional streams from different agents are handled independently,
+// with correct agent attribution for each stream.
+func TestProcess_ConcurrentStreams(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMRequestComplete)
+	defer bus.Unsubscribe(sub)
+
+	numStreams := 5
+	var wg sync.WaitGroup
+	wg.Add(numStreams)
+
+	for i := 0; i < numStreams; i++ {
+		go func(idx int) {
+			defer wg.Done()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			stream, err := client.Process(ctx)
+			if err != nil {
+				t.Errorf("stream %d: failed to open: %v", idx, err)
+				return
+			}
+
+			agentID := fmt.Sprintf("agent-%d", idx)
+			reqID := fmt.Sprintf("req-concurrent-%d", idx)
+
+			// Request headers
+			err = stream.Send(&extprocv3.ProcessingRequest{
+				Request: &extprocv3.ProcessingRequest_RequestHeaders{
+					RequestHeaders: &extprocv3.HttpHeaders{
+						Headers: makeHeaderMap(
+							":path", "/v1/chat/completions",
+							":method", "POST",
+							"host", "api.openai.com",
+							"x-panoptium-agent-id", agentID,
+							"x-panoptium-auth-type", "jwt",
+							"x-panoptium-request-id", reqID,
+						),
+					},
+				},
+			})
+			if err != nil {
+				t.Errorf("stream %d: send headers: %v", idx, err)
+				return
+			}
+			if _, err := stream.Recv(); err != nil {
+				t.Errorf("stream %d: recv headers: %v", idx, err)
+				return
+			}
+
+			// Request body
+			err = stream.Send(&extprocv3.ProcessingRequest{
+				Request: &extprocv3.ProcessingRequest_RequestBody{
+					RequestBody: &extprocv3.HttpBody{
+						Body:        makeOpenAIRequestBody("gpt-4", true),
+						EndOfStream: true,
+					},
+				},
+			})
+			if err != nil {
+				t.Errorf("stream %d: send body: %v", idx, err)
+				return
+			}
+			if _, err := stream.Recv(); err != nil {
+				t.Errorf("stream %d: recv body: %v", idx, err)
+				return
+			}
+
+			// Response headers
+			err = stream.Send(&extprocv3.ProcessingRequest{
+				Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+					ResponseHeaders: &extprocv3.HttpHeaders{
+						Headers: makeHeaderMap(":status", "200", "content-type", "text/event-stream"),
+					},
+				},
+			})
+			if err != nil {
+				t.Errorf("stream %d: send resp headers: %v", idx, err)
+				return
+			}
+			if _, err := stream.Recv(); err != nil {
+				t.Errorf("stream %d: recv resp headers: %v", idx, err)
+				return
+			}
+
+			// Response body with tokens
+			tokenCount := idx + 1 // vary tokens per stream
+			for j := 0; j < tokenCount; j++ {
+				isLast := j == tokenCount-1
+				var body []byte
+				if isLast {
+					body = append(makeOpenAISSEChunk(fmt.Sprintf("tok%d", j)), makeOpenAISSEDone()...)
+				} else {
+					body = makeOpenAISSEChunk(fmt.Sprintf("tok%d", j))
+				}
+				err = stream.Send(&extprocv3.ProcessingRequest{
+					Request: &extprocv3.ProcessingRequest_ResponseBody{
+						ResponseBody: &extprocv3.HttpBody{
+							Body:        body,
+							EndOfStream: isLast,
+						},
+					},
+				})
+				if err != nil {
+					t.Errorf("stream %d: send response chunk %d: %v", idx, j, err)
+					return
+				}
+				if _, err := stream.Recv(); err != nil {
+					t.Errorf("stream %d: recv response chunk %d: %v", idx, j, err)
+					return
+				}
+			}
+
+			stream.CloseSend()
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Collect all completion events
+	completeEvents := make(map[string]*eventbus.LLMRequestCompleteEvent)
+	timeout := time.After(5 * time.Second)
+	for len(completeEvents) < numStreams {
+		select {
+		case evt := <-sub.Events():
+			completeEvt, ok := evt.(*eventbus.LLMRequestCompleteEvent)
+			if !ok {
+				continue
+			}
+			completeEvents[completeEvt.RequestID()] = completeEvt
+		case <-timeout:
+			t.Fatalf("timed out waiting for completion events, got %d of %d", len(completeEvents), numStreams)
+		}
+	}
+
+	// Verify each stream produced the correct event
+	for i := 0; i < numStreams; i++ {
+		reqID := fmt.Sprintf("req-concurrent-%d", i)
+		evt, ok := completeEvents[reqID]
+		if !ok {
+			t.Errorf("missing completion event for %s", reqID)
+			continue
+		}
+
+		expectedTokens := i + 1
+		if evt.OutputTokens != expectedTokens {
+			t.Errorf("stream %d: OutputTokens = %d, want %d", i, evt.OutputTokens, expectedTokens)
+		}
+
+		wantAgent := fmt.Sprintf("agent-%d", i)
+		if evt.Identity().ID != wantAgent {
+			t.Errorf("stream %d: AgentID = %q, want %q", i, evt.Identity().ID, wantAgent)
+		}
+	}
+}
+
+// TestProcess_MetricsComputation verifies that per-request metrics (TTFT,
+// tokens per second, total tokens) are correctly computed.
+func TestProcess_MetricsComputation(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMRequestComplete)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Request headers
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-agent-id", "agent-metrics",
+					"x-panoptium-auth-type", "jwt",
+					"x-panoptium-request-id", "req-metrics-1",
+				),
+			},
+		},
+	})
+	stream.Recv()
+
+	// Request body
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	stream.Recv()
+
+	// Response headers
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(":status", "200", "content-type", "text/event-stream"),
+			},
+		},
+	})
+	stream.Recv()
+
+	// Send 3 tokens with small delays to make TTFT measurable
+	for i := 0; i < 3; i++ {
+		isLast := i == 2
+		var body []byte
+		if isLast {
+			body = append(makeOpenAISSEChunk(fmt.Sprintf("w%d", i)), makeOpenAISSEDone()...)
+		} else {
+			body = makeOpenAISSEChunk(fmt.Sprintf("w%d", i))
+		}
+		stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_ResponseBody{
+				ResponseBody: &extprocv3.HttpBody{
+					Body:        body,
+					EndOfStream: isLast,
+				},
+			},
+		})
+		stream.Recv()
+	}
+
+	stream.CloseSend()
+
+	select {
+	case evt := <-sub.Events():
+		completeEvt, ok := evt.(*eventbus.LLMRequestCompleteEvent)
+		if !ok {
+			t.Fatal("expected *LLMRequestCompleteEvent")
+		}
+
+		if completeEvt.OutputTokens != 3 {
+			t.Errorf("OutputTokens = %d, want 3", completeEvt.OutputTokens)
+		}
+
+		// TTFT should be non-negative (it represents time from request start to first token)
+		if completeEvt.TTFT < 0 {
+			t.Errorf("TTFT = %v, should be non-negative", completeEvt.TTFT)
+		}
+
+		// Duration should be positive
+		if completeEvt.Duration <= 0 {
+			t.Errorf("Duration = %v, should be positive", completeEvt.Duration)
+		}
+
+		// TokensPerSec should be positive
+		if completeEvt.TokensPerSec <= 0 {
+			t.Errorf("TokensPerSec = %f, should be positive", completeEvt.TokensPerSec)
+		}
+
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for LLMRequestComplete event")
+	}
+}
+
+// TestProcess_UnknownObserver verifies that when no observer can handle
+// the request (unknown path/host), the server logs and passes through
+// without failing.
+func TestProcess_UnknownObserver(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe()
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers with an unknown path
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/unknown/api/endpoint",
+					":method", "POST",
+					"host", "unknown.example.com",
+					"x-panoptium-request-id", "req-unknown",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+
+	// The server should still respond (not error)
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("server should not error for unknown observer: %v", err)
+	}
+	if resp.GetRequestHeaders() == nil {
+		t.Fatal("expected RequestHeaders response even for unknown observer")
+	}
+
+	// Send request body — should still succeed
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        []byte(`{"some": "data"}`),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+
+	resp, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("server should not error for unknown observer body: %v", err)
+	}
+	if resp.GetRequestBody() == nil {
+		t.Fatal("expected RequestBody response even for unknown observer")
+	}
+
+	// Send response headers — should still succeed
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(":status", "200"),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response headers: %v", err)
+	}
+
+	resp, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("server should not error for unknown observer response headers: %v", err)
+	}
+	if resp.GetResponseHeaders() == nil {
+		t.Fatal("expected ResponseHeaders response even for unknown observer")
+	}
+
+	// Send response body — should still succeed
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{
+				Body:        []byte(`some response`),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response body: %v", err)
+	}
+
+	resp, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("server should not error for unknown observer response body: %v", err)
+	}
+	if resp.GetResponseBody() == nil {
+		t.Fatal("expected ResponseBody response even for unknown observer")
+	}
+
+	stream.CloseSend()
+
+	// No events should be emitted for unknown observers
+	select {
+	case evt := <-sub.Events():
+		t.Errorf("no events should be emitted for unknown observer, got: %s", evt.EventType())
+	case <-time.After(500 * time.Millisecond):
+		// Expected: no events
+	}
+}
+
+// TestProcess_MultiEventSSEFrame verifies that when a single HTTP frame
+// contains multiple SSE events, they are all correctly parsed and emitted.
+func TestProcess_MultiEventSSEFrame(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMTokenChunk)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Request headers
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-request-id", "req-multi-sse",
+				),
+			},
+		},
+	})
+	stream.Recv()
+
+	// Request body
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	stream.Recv()
+
+	// Response headers
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(":status", "200", "content-type", "text/event-stream"),
+			},
+		},
+	})
+	stream.Recv()
+
+	// Send a single frame with multiple SSE events
+	multiFrame := append(
+		append(makeOpenAISSEChunk("multi"), makeOpenAISSEChunk("event")...),
+		makeOpenAISSEChunk("frame")...,
+	)
+
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{
+				Body:        multiFrame,
+				EndOfStream: true,
+			},
+		},
+	})
+	stream.Recv()
+
+	stream.CloseSend()
+
+	// Verify all three token events were emitted
+	var tokens []string
+	timeout := time.After(2 * time.Second)
+	for len(tokens) < 3 {
+		select {
+		case evt := <-sub.Events():
+			chunkEvt, ok := evt.(*eventbus.LLMTokenChunkEvent)
+			if ok {
+				tokens = append(tokens, chunkEvt.Content)
+			}
+		case <-timeout:
+			t.Fatalf("timed out: expected 3 tokens from multi-event frame, got %d: %v", len(tokens), tokens)
+		}
+	}
+
+	expected := []string{"multi", "event", "frame"}
+	for i, want := range expected {
+		if tokens[i] != want {
+			t.Errorf("token[%d] = %q, want %q", i, tokens[i], want)
+		}
+	}
+}
+
+// TestProcess_StreamEndTriggersFinalize verifies that when the client closes
+// the stream (io.EOF), the Finalize method is called on the observer.
+func TestProcess_StreamEndTriggersFinalize(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMRequestComplete)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Minimal stream with request headers, body, and one response chunk
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-request-id", "req-finalize",
+				),
+			},
+		},
+	})
+	stream.Recv()
+
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	stream.Recv()
+
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(":status", "200", "content-type", "text/event-stream"),
+			},
+		},
+	})
+	stream.Recv()
+
+	// Send a single chunk with end of stream
+	body := append(makeOpenAISSEChunk("final"), makeOpenAISSEDone()...)
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{
+				Body:        body,
+				EndOfStream: true,
+			},
+		},
+	})
+	stream.Recv()
+
+	// Explicitly close the stream
+	stream.CloseSend()
+
+	// Wait to receive a trailing EOF
+	for {
+		_, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	// Verify Finalize was called (LLMRequestComplete emitted)
+	select {
+	case evt := <-sub.Events():
+		completeEvt, ok := evt.(*eventbus.LLMRequestCompleteEvent)
+		if !ok {
+			t.Fatal("expected *LLMRequestCompleteEvent")
+		}
+		if completeEvt.OutputTokens != 1 {
+			t.Errorf("OutputTokens = %d, want 1", completeEvt.OutputTokens)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for LLMRequestComplete — Finalize may not have been called")
+	}
+}
+
+// TestProcess_AnthropicProvider verifies that the ExtProc server correctly
+// handles Anthropic-format requests and streaming responses.
+func TestProcess_AnthropicProvider(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe()
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Request headers for Anthropic
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/messages",
+					":method", "POST",
+					"host", "api.anthropic.com",
+					"x-panoptium-agent-id", "agent-anthropic",
+					"x-panoptium-auth-type", "jwt",
+					"x-panoptium-request-id", "req-anthropic-1",
+				),
+			},
+		},
+	})
+	stream.Recv()
+
+	// Request body
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeAnthropicRequestBody("claude-3-opus-20240229", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	stream.Recv()
+
+	// Response headers
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(":status", "200", "content-type", "text/event-stream"),
+			},
+		},
+	})
+	stream.Recv()
+
+	// Anthropic SSE events
+	anthropicChunk := func(text string) []byte {
+		data := fmt.Sprintf(`{"type":"content_block_delta","delta":{"type":"text_delta","text":"%s"}}`, text)
+		return []byte(fmt.Sprintf("event: content_block_delta\ndata: %s\n\n", data))
+	}
+
+	anthropicStop := func() []byte {
+		return []byte("event: message_stop\ndata: {}\n\n")
+	}
+
+	// Send Anthropic streaming chunks
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{
+				Body:        anthropicChunk("Kubernetes"),
+				EndOfStream: false,
+			},
+		},
+	})
+	stream.Recv()
+
+	stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{
+				Body:        append(anthropicChunk(" is"), anthropicStop()...),
+				EndOfStream: true,
+			},
+		},
+	})
+	stream.Recv()
+
+	stream.CloseSend()
+
+	// Collect events
+	var events []eventbus.Event
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case evt, ok := <-sub.Events():
+			if !ok {
+				goto checkAnthropicEvents
+			}
+			events = append(events, evt)
+		case <-timeout:
+			goto checkAnthropicEvents
+		}
+	}
+checkAnthropicEvents:
+
+	// Check for start event
+	var foundAnthropicStart bool
+	for _, evt := range events {
+		if evt.EventType() == eventbus.EventTypeLLMRequestStart {
+			foundAnthropicStart = true
+			if evt.Provider() != eventbus.ProviderAnthropic {
+				t.Errorf("Provider = %q, want %q", evt.Provider(), eventbus.ProviderAnthropic)
+			}
+		}
+	}
+	if !foundAnthropicStart {
+		t.Error("expected LLMRequestStart event for Anthropic")
+	}
+
+	// Check token chunks
+	var anthropicTokenCount int
+	for _, evt := range events {
+		if evt.EventType() == eventbus.EventTypeLLMTokenChunk {
+			anthropicTokenCount++
+		}
+	}
+	if anthropicTokenCount != 2 {
+		t.Errorf("expected 2 Anthropic token chunks, got %d", anthropicTokenCount)
+	}
+}
