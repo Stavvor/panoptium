@@ -20,7 +20,10 @@ import (
 	"context"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 )
 
 // PodInfo contains resolved pod metadata stored in the IP cache.
@@ -52,42 +55,140 @@ func NewPodCache() *PodCache {
 }
 
 // Get retrieves pod info for the given IP. Returns false if not found.
-// TODO: implement.
 func (c *PodCache) Get(ip string) (PodInfo, bool) {
-	return PodInfo{}, false
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	info, ok := c.items[ip]
+	return info, ok
 }
 
 // Set adds or updates a pod info entry for the given IP.
-// TODO: implement.
 func (c *PodCache) Set(ip string, info PodInfo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.items[ip] = info
 }
 
 // Delete removes a pod info entry for the given IP.
-// TODO: implement.
 func (c *PodCache) Delete(ip string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.items, ip)
 }
 
-// PodCacheInformer watches Kubernetes pods and keeps the PodCache in sync.
+// PodCacheInformer watches Kubernetes pods and keeps the PodCache in sync
+// using a Kubernetes SharedInformer. It handles Add, Update, and Delete events
+// to maintain an accurate pod IP to metadata mapping without per-request API calls.
 type PodCacheInformer struct {
-	client kubernetes.Interface
-	cache  *PodCache
+	client  kubernetes.Interface
+	cache   *PodCache
+	factory informers.SharedInformerFactory
+	synced  []cache.InformerSynced
 }
 
-// NewPodCacheInformer creates a new PodCacheInformer.
-func NewPodCacheInformer(client kubernetes.Interface, cache *PodCache) *PodCacheInformer {
-	return &PodCacheInformer{
-		client: client,
-		cache:  cache,
+// NewPodCacheInformer creates a new PodCacheInformer that watches all pods
+// across all namespaces and keeps the PodCache in sync.
+func NewPodCacheInformer(client kubernetes.Interface, podCache *PodCache) *PodCacheInformer {
+	factory := informers.NewSharedInformerFactory(client, 0)
+
+	pci := &PodCacheInformer{
+		client:  client,
+		cache:   podCache,
+		factory: factory,
 	}
+
+	podInformer := factory.Core().V1().Pods().Informer()
+
+	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			pod, ok := obj.(*corev1.Pod)
+			if !ok {
+				return
+			}
+			pci.onPodAdd(pod)
+		},
+		UpdateFunc: func(_, newObj interface{}) {
+			pod, ok := newObj.(*corev1.Pod)
+			if !ok {
+				return
+			}
+			pci.onPodUpdate(pod)
+		},
+		DeleteFunc: func(obj interface{}) {
+			pod, ok := obj.(*corev1.Pod)
+			if !ok {
+				// Handle deleted final state unknown
+				tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+				if !ok {
+					return
+				}
+				pod, ok = tombstone.Obj.(*corev1.Pod)
+				if !ok {
+					return
+				}
+			}
+			pci.onPodDelete(pod)
+		},
+	})
+
+	pci.synced = append(pci.synced, podInformer.HasSynced)
+
+	return pci
 }
 
-// Run starts the informer and blocks until the context is cancelled.
-// TODO: implement.
-func (i *PodCacheInformer) Run(ctx context.Context) {
+// Run starts the informer factory and blocks until the context is cancelled.
+func (pci *PodCacheInformer) Run(ctx context.Context) {
+	pci.factory.Start(ctx.Done())
+	<-ctx.Done()
 }
 
 // WaitForSync blocks until the informer's cache has synced or the context is cancelled.
-// TODO: implement.
-func (i *PodCacheInformer) WaitForSync(ctx context.Context) bool {
-	return false
+// Returns true if the cache successfully synced, false if the context was cancelled.
+func (pci *PodCacheInformer) WaitForSync(ctx context.Context) bool {
+	return cache.WaitForCacheSync(ctx.Done(), pci.synced...)
+}
+
+// onPodAdd handles a pod Add event by adding the pod's IP to the cache.
+func (pci *PodCacheInformer) onPodAdd(pod *corev1.Pod) {
+	if pod.Status.PodIP == "" {
+		return
+	}
+
+	pci.cache.Set(pod.Status.PodIP, podInfoFromPod(pod))
+}
+
+// onPodUpdate handles a pod Update event by refreshing the cache entry.
+func (pci *PodCacheInformer) onPodUpdate(pod *corev1.Pod) {
+	if pod.Status.PodIP == "" {
+		return
+	}
+
+	pci.cache.Set(pod.Status.PodIP, podInfoFromPod(pod))
+}
+
+// onPodDelete handles a pod Delete event by removing the cache entry.
+func (pci *PodCacheInformer) onPodDelete(pod *corev1.Pod) {
+	if pod.Status.PodIP == "" {
+		return
+	}
+
+	pci.cache.Delete(pod.Status.PodIP)
+}
+
+// podInfoFromPod extracts PodInfo from a Kubernetes Pod object.
+func podInfoFromPod(pod *corev1.Pod) PodInfo {
+	labels := make(map[string]string, len(pod.Labels))
+	for k, v := range pod.Labels {
+		labels[k] = v
+	}
+
+	return PodInfo{
+		Name:           pod.Name,
+		Namespace:      pod.Namespace,
+		Labels:         labels,
+		ServiceAccount: pod.Spec.ServiceAccountName,
+	}
 }

@@ -40,7 +40,10 @@ const (
 	HeaderRequestID = "X-Panoptium-Request-Id"
 )
 
-// Resolver resolves agent identity from HTTP headers using cascading lookup.
+// Resolver resolves agent identity from HTTP headers using cascading lookup:
+//  1. Use x-panoptium-agent-id if auth-type is "jwt" (high confidence)
+//  2. Fallback: resolve pod name from x-panoptium-client-ip via pod IP cache (medium confidence)
+//  3. Last resort: use raw source IP as identifier (low confidence)
 type Resolver struct {
 	cache *PodCache
 }
@@ -51,8 +54,50 @@ func NewResolver(cache *PodCache) *Resolver {
 	return &Resolver{cache: cache}
 }
 
-// Resolve extracts agent identity from the provided HTTP headers.
-// TODO: implement cascading resolution logic.
+// Resolve extracts agent identity from the provided HTTP headers using
+// cascading resolution. It reads the x-panoptium-* headers injected by
+// AgentGateway's transformation policy and resolves the agent identity
+// with the appropriate confidence level.
 func (r *Resolver) Resolve(headers http.Header) eventbus.AgentIdentity {
-	return eventbus.AgentIdentity{}
+	agentID := headers.Get(HeaderAgentID)
+	clientIP := headers.Get(HeaderClientIP)
+	authType := headers.Get(HeaderAuthType)
+
+	identity := eventbus.AgentIdentity{
+		ID:       agentID,
+		SourceIP: clientIP,
+		AuthType: authType,
+	}
+
+	// Cascading resolution:
+	// 1. JWT auth type -> high confidence
+	if authType == eventbus.AuthTypeJWT {
+		identity.Confidence = eventbus.ConfidenceHigh
+		recordResolution("jwt", "success")
+		return identity
+	}
+
+	// 2. Source-IP auth type -> try pod lookup for medium confidence
+	if authType == eventbus.AuthTypeSourceIP && clientIP != "" && r.cache != nil {
+		podInfo, ok := r.cache.Get(clientIP)
+		if ok {
+			identity.Confidence = eventbus.ConfidenceMedium
+			identity.PodName = podInfo.Name
+			identity.Namespace = podInfo.Namespace
+			identity.Labels = podInfo.Labels
+			recordResolution("pod", "success")
+			return identity
+		}
+		// Pod not found in cache, fall through to IP fallback
+		recordResolution("pod", "fallback")
+	}
+
+	// 3. Fallback: low confidence (raw IP or unknown)
+	identity.Confidence = eventbus.ConfidenceLow
+	if agentID == "" {
+		recordResolution("ip", "unknown")
+	} else {
+		recordResolution("ip", "fallback")
+	}
+	return identity
 }
