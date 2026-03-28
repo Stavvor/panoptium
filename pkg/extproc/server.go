@@ -82,6 +82,9 @@ type streamState struct {
 func (s *ExtProcServer) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 	logger := log.FromContext(stream.Context()).WithName("extproc")
 
+	RecordStreamStart()
+	defer RecordStreamEnd()
+
 	state := &streamState{}
 
 	for {
@@ -211,6 +214,7 @@ func (s *ExtProcServer) handleRequestBody(ctx context.Context, state *streamStat
 			}); ok {
 				l.Info("error processing request stream", "error", err)
 			}
+			RecordParseError(state.streamCtx.Provider, "request")
 		}
 
 		if streamCtx != nil {
@@ -218,6 +222,9 @@ func (s *ExtProcServer) handleRequestBody(ctx context.Context, state *streamStat
 			streamCtx.AgentIdentity = state.streamCtx.AgentIdentity
 			streamCtx.RequestID = state.streamCtx.RequestID
 			state.streamCtx = streamCtx
+
+			// Record the request metric
+			RecordRequest(streamCtx.Provider)
 
 			// Emit LLMRequestStart event
 			s.emitRequestStartEvent(state)
@@ -246,12 +253,19 @@ func (s *ExtProcServer) handleResponseHeaders(_ *streamState, _ *extprocv3.HttpH
 // to the observer for SSE/token parsing.
 func (s *ExtProcServer) handleResponseBody(ctx context.Context, state *streamState, body *extprocv3.HttpBody, logger interface{ Info(string, ...interface{}) }) *extprocv3.ProcessingResponse {
 	if state.obs != nil && state.streamCtx != nil {
+		prevTokenCount := state.streamCtx.TokenCount
 		if err := state.obs.ProcessResponseStream(ctx, state.streamCtx, body.GetBody()); err != nil {
 			if l, ok := logger.(interface {
 				Info(string, ...interface{})
 			}); ok {
 				l.Info("error processing response stream", "error", err)
 			}
+			RecordParseError(state.streamCtx.Provider, "response")
+		}
+		// Record any new tokens observed in this chunk
+		newTokens := state.streamCtx.TokenCount - prevTokenCount
+		if newTokens > 0 {
+			RecordTokensObserved(state.streamCtx.Provider, newTokens)
 		}
 	}
 
