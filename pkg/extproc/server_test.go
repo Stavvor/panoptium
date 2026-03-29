@@ -920,8 +920,13 @@ func TestProcess_PassiveMode(t *testing.T) {
 	if commonResp.GetBodyMutation() == nil {
 		t.Fatal("expected BodyMutation for body echo, got nil")
 	}
-	if string(commonResp.GetBodyMutation().GetBody()) != string(reqBody) {
-		t.Error("expected body to be echoed verbatim")
+	// Verify StreamedResponse variant is used (required by AgentGateway streaming mode)
+	reqStreamedResp := commonResp.GetBodyMutation().GetStreamedResponse()
+	if reqStreamedResp == nil {
+		t.Fatal("expected BodyMutation_StreamedResponse for body echo, got different variant")
+	}
+	if string(reqStreamedResp.GetBody()) != string(reqBody) {
+		t.Error("expected body to be echoed verbatim via StreamedResponse")
 	}
 
 	// Test response headers response is empty
@@ -986,8 +991,13 @@ func TestProcess_PassiveMode(t *testing.T) {
 	if respCommon.GetBodyMutation() == nil {
 		t.Fatal("expected BodyMutation for response body echo, got nil")
 	}
-	if string(respCommon.GetBodyMutation().GetBody()) != string(sseChunk) {
-		t.Error("expected response body to be echoed verbatim")
+	// Verify StreamedResponse variant is used (required by AgentGateway streaming mode)
+	respStreamedResp := respCommon.GetBodyMutation().GetStreamedResponse()
+	if respStreamedResp == nil {
+		t.Fatal("expected BodyMutation_StreamedResponse for response body echo, got different variant")
+	}
+	if string(respStreamedResp.GetBody()) != string(sseChunk) {
+		t.Error("expected response body to be echoed verbatim via StreamedResponse")
 	}
 
 	// Verify no dynamic metadata or mode override
@@ -1886,7 +1896,7 @@ func TestProcess_RequestBodyEchoesViaBodyMutation(t *testing.T) {
 		t.Fatal("expected BodyMutation in CommonResponse, got nil")
 	}
 
-	echoedBody := bodyMutation.GetBody()
+	echoedBody := bodyMutation.GetStreamedResponse().GetBody()
 	if len(echoedBody) == 0 {
 		t.Fatal("expected echoed body data, got empty")
 	}
@@ -2006,7 +2016,7 @@ func TestProcess_ResponseBodyEchoesViaBodyMutation(t *testing.T) {
 		t.Fatal("expected BodyMutation in CommonResponse, got nil")
 	}
 
-	echoedBody := bodyMutation.GetBody()
+	echoedBody := bodyMutation.GetStreamedResponse().GetBody()
 	if len(echoedBody) == 0 {
 		t.Fatal("expected echoed body data, got empty")
 	}
@@ -2098,7 +2108,7 @@ func TestProcess_MultiChunkRequestBodyEchoesIndividually(t *testing.T) {
 			t.Fatalf("chunk %d: expected BodyMutation in CommonResponse, got nil", i)
 		}
 
-		echoedBody := bodyMutation.GetBody()
+		echoedBody := bodyMutation.GetStreamedResponse().GetBody()
 		if string(echoedBody) != string(chunk) {
 			t.Errorf("chunk %d: echoed body = %q, want %q", i, string(echoedBody), string(chunk))
 		}
@@ -2227,7 +2237,7 @@ func TestProcess_MultiChunkResponseBodyEchoesWithTokenParsing(t *testing.T) {
 			t.Fatalf("chunk %d: expected BodyMutation in CommonResponse, got nil", i)
 		}
 
-		echoedBody := bodyMutation.GetBody()
+		echoedBody := bodyMutation.GetStreamedResponse().GetBody()
 		if string(echoedBody) != string(chunk) {
 			t.Errorf("chunk %d: echoed body = %q, want %q", i, string(echoedBody), string(chunk))
 		}
@@ -2377,7 +2387,7 @@ func TestProcess_EndOfStreamOnlyOnFinalChunk(t *testing.T) {
 		}
 
 		// Each chunk should echo the exact body data sent
-		echoedBody := bodyMutation.GetBody()
+		echoedBody := bodyMutation.GetStreamedResponse().GetBody()
 		if string(echoedBody) != string(ct.body) {
 			t.Errorf("chunk %d: echoed body does not match sent body", i)
 		}
