@@ -152,11 +152,7 @@ log_info "Mock LLM is ready."
 log_info "=== Phase 7: Integration wiring ==="
 kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-backend.yaml"
 kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-route.yaml"
-# NOTE: ExtProc policy is NOT applied here. AgentGateway's Rust proxy parses the
-# request body for LLM routing; when ExtProc body buffering is enabled, the body
-# is consumed before the proxy can read it, causing a 503. The E2E tests validate
-# ExtProc deployment artifacts (service, port, logs) independently of the data path.
-# kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-extproc-policy.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-extproc-policy.yaml"
 log_info "Integration wiring applied."
 
 # --------------------------------------------------------------------------
