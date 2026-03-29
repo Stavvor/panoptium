@@ -3,9 +3,6 @@ kind: Gateway
 metadata:
   name: e2e-gateway
   namespace: panoptium-system
-  annotations:
-    # Use NodePort for kind cluster access
-    networking.istio.io/service-type: ClusterIP
 spec:
   gatewayClassName: agentgateway
   listeners:
@@ -22,6 +19,10 @@ metadata:
   name: mock-llm-backend
   namespace: panoptium-system
 spec:
-  type: openai
-  endpoint:
-    url: "http://mock-llm.panoptium-system.svc.cluster.local:8080"
+  ai:
+    groups:
+    - providers:
+      - name: mock-openai
+        openai: {}
+        host: mock-llm.panoptium-system.svc.cluster.local
+        port: 8080
