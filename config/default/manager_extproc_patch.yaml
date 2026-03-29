@@ -1,0 +1,7 @@
+# This patch adds the ExtProc gRPC containerPort to the manager deployment
+- op: add
+  path: /spec/template/spec/containers/0/ports
+  value:
+  - containerPort: 9001
+    name: extproc
+    protocol: TCP

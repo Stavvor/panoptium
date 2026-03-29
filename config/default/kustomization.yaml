@@ -27,6 +27,8 @@ resources:
 #- ../prometheus
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
+# [EXTPROC] Expose the ExtProc gRPC service.
+- extproc_service.yaml
 # [NETWORK POLICY] Protect the /metrics endpoint and Webhook Server with NetworkPolicy.
 # Only Pod(s) running a namespace labeled with 'metrics: enabled' will be able to gather the metrics.
 # Only CR(s) which requires webhooks and are applied on namespaces labeled with 'webhooks: enabled' will
@@ -38,6 +40,10 @@ patches:
 # [METRICS] The following patch will enable the metrics endpoint using HTTPS and the port :8443.
 # More info: https://book.kubebuilder.io/reference/metrics
 - path: manager_metrics_patch.yaml
+  target:
+    kind: Deployment
+# [EXTPROC] Add ExtProc gRPC containerPort to the manager deployment.
+- path: manager_extproc_patch.yaml
   target:
     kind: Deployment
 
