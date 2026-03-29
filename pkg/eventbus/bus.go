@@ -43,19 +43,44 @@ type Subscription struct {
 	mu         sync.Mutex
 }
 
+// NewSubscription creates a new Subscription with the given event types, filter,
+// and buffer size. This is intended for use by EventBus implementations.
+func NewSubscription(eventTypes []string, filter EventFilter, bufferSize int) *Subscription {
+	typeMap := make(map[string]bool, len(eventTypes))
+	for _, t := range eventTypes {
+		typeMap[t] = true
+	}
+	return &Subscription{
+		ch:         make(chan Event, bufferSize),
+		eventTypes: typeMap,
+		filter:     filter,
+	}
+}
+
 // Events returns the channel on which the subscriber receives events.
 func (s *Subscription) Events() <-chan Event {
 	return s.ch
 }
 
-// close closes the subscription's channel. It is safe to call multiple times.
-func (s *Subscription) close() {
+// Ch returns the writable channel for sending events to this subscription.
+// This is intended for use by EventBus implementations.
+func (s *Subscription) Ch() chan<- Event {
+	return s.ch
+}
+
+// Close closes the subscription's channel. It is safe to call multiple times.
+func (s *Subscription) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.closed {
 		s.closed = true
 		close(s.ch)
 	}
+}
+
+// close is a package-private alias for Close, preserved for backward compatibility.
+func (s *Subscription) close() {
+	s.Close()
 }
 
 // EventBus defines the interface for an event bus that supports
