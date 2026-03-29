@@ -36,7 +36,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"github.com/panoptium/panoptium/pkg/eventbus"
+	natsbus "github.com/panoptium/panoptium/pkg/eventbus/nats"
 	"github.com/panoptium/panoptium/pkg/extproc"
 	"github.com/panoptium/panoptium/pkg/identity"
 	"github.com/panoptium/panoptium/pkg/observer"
@@ -153,8 +153,28 @@ func main() {
 
 	// +kubebuilder:scaffold:builder
 
+	// Set up the embedded NATS server for the event bus
+	natsSrv, err := natsbus.NewServer(natsbus.ServerConfig{
+		StoreDir: "/var/lib/panoptium/nats",
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to create embedded NATS server")
+		os.Exit(1)
+	}
+	if err := natsSrv.Start(); err != nil {
+		setupLog.Error(err, "unable to start embedded NATS server")
+		os.Exit(1)
+	}
+	defer natsSrv.Shutdown()
+	setupLog.Info("embedded NATS server started", "url", natsSrv.ClientURL())
+
 	// Set up shared components for the ExtProc observer pipeline
-	bus := eventbus.NewSimpleBus()
+	bus, err := natsbus.NewNATSBus(natsSrv.ClientURL())
+	if err != nil {
+		setupLog.Error(err, "unable to create NATS event bus")
+		os.Exit(1)
+	}
+	defer bus.Close()
 
 	registry := observer.NewObserverRegistry()
 
