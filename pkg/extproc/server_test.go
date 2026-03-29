@@ -1799,3 +1799,575 @@ checkAnthropicEvents:
 		t.Errorf("expected 2 Anthropic token chunks, got %d", anthropicTokenCount)
 	}
 }
+
+// TestProcess_RequestBodyEchoesViaBodyMutation verifies that handleRequestBody
+// returns a BodyResponse with BodyMutation containing the echoed body data,
+// rather than an empty BodyResponse.
+func TestProcess_RequestBodyEchoesViaBodyMutation(t *testing.T) {
+	_, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-request-id", "req-body-echo-1",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send request body
+	reqBody := makeOpenAIRequestBody("gpt-4", true)
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        reqBody,
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Verify the response echoes body data via BodyMutation
+	bodyResp := resp.GetRequestBody()
+	if bodyResp == nil {
+		t.Fatal("expected RequestBody response")
+	}
+
+	commonResp := bodyResp.GetResponse()
+	if commonResp == nil {
+		t.Fatal("expected CommonResponse in RequestBody response, got nil (empty BodyResponse)")
+	}
+
+	bodyMutation := commonResp.GetBodyMutation()
+	if bodyMutation == nil {
+		t.Fatal("expected BodyMutation in CommonResponse, got nil")
+	}
+
+	echoedBody := bodyMutation.GetBody()
+	if len(echoedBody) == 0 {
+		t.Fatal("expected echoed body data, got empty")
+	}
+
+	if string(echoedBody) != string(reqBody) {
+		t.Errorf("echoed body = %q, want %q", string(echoedBody), string(reqBody))
+	}
+
+	stream.CloseSend()
+}
+
+// TestProcess_ResponseBodyEchoesViaBodyMutation verifies that handleResponseBody
+// returns a BodyResponse with BodyMutation containing the echoed body data,
+// rather than an empty BodyResponse.
+func TestProcess_ResponseBodyEchoesViaBodyMutation(t *testing.T) {
+	_, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-request-id", "req-resp-echo-1",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send request body
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send response headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":status", "200",
+					"content-type", "text/event-stream",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send response body
+	sseChunk := makeOpenAISSEChunk("Hello")
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{
+				Body:        sseChunk,
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response body: %v", err)
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Verify the response echoes body data via BodyMutation
+	bodyResp := resp.GetResponseBody()
+	if bodyResp == nil {
+		t.Fatal("expected ResponseBody response")
+	}
+
+	commonResp := bodyResp.GetResponse()
+	if commonResp == nil {
+		t.Fatal("expected CommonResponse in ResponseBody response, got nil (empty BodyResponse)")
+	}
+
+	bodyMutation := commonResp.GetBodyMutation()
+	if bodyMutation == nil {
+		t.Fatal("expected BodyMutation in CommonResponse, got nil")
+	}
+
+	echoedBody := bodyMutation.GetBody()
+	if len(echoedBody) == 0 {
+		t.Fatal("expected echoed body data, got empty")
+	}
+
+	if string(echoedBody) != string(sseChunk) {
+		t.Errorf("echoed body = %q, want %q", string(echoedBody), string(sseChunk))
+	}
+
+	stream.CloseSend()
+}
+
+// TestProcess_MultiChunkRequestBodyEchoesIndividually verifies that when the
+// request body arrives in multiple chunks, each chunk is echoed individually
+// via BodyMutation.
+func TestProcess_MultiChunkRequestBodyEchoesIndividually(t *testing.T) {
+	_, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-request-id", "req-multi-chunk-1",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Split body into 3 chunks
+	fullBody := makeOpenAIRequestBody("gpt-4", true)
+	chunkSize := len(fullBody) / 3
+	chunks := [][]byte{
+		fullBody[:chunkSize],
+		fullBody[chunkSize : 2*chunkSize],
+		fullBody[2*chunkSize:],
+	}
+
+	for i, chunk := range chunks {
+		isLast := i == len(chunks)-1
+		err = stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_RequestBody{
+				RequestBody: &extprocv3.HttpBody{
+					Body:        chunk,
+					EndOfStream: isLast,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to send request body chunk %d: %v", i, err)
+		}
+
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive response for chunk %d: %v", i, err)
+		}
+
+		bodyResp := resp.GetRequestBody()
+		if bodyResp == nil {
+			t.Fatalf("chunk %d: expected RequestBody response", i)
+		}
+
+		commonResp := bodyResp.GetResponse()
+		if commonResp == nil {
+			t.Fatalf("chunk %d: expected CommonResponse in RequestBody response, got nil (empty BodyResponse)", i)
+		}
+
+		bodyMutation := commonResp.GetBodyMutation()
+		if bodyMutation == nil {
+			t.Fatalf("chunk %d: expected BodyMutation in CommonResponse, got nil", i)
+		}
+
+		echoedBody := bodyMutation.GetBody()
+		if string(echoedBody) != string(chunk) {
+			t.Errorf("chunk %d: echoed body = %q, want %q", i, string(echoedBody), string(chunk))
+		}
+	}
+
+	stream.CloseSend()
+}
+
+// TestProcess_MultiChunkResponseBodyEchoesWithTokenParsing verifies that
+// each response body chunk (containing SSE frames) is both echoed via
+// BodyMutation and parsed for token observation.
+func TestProcess_MultiChunkResponseBodyEchoesWithTokenParsing(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMTokenChunk)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-agent-id", "agent-echo-tokens",
+					"x-panoptium-auth-type", "jwt",
+					"x-panoptium-request-id", "req-echo-tokens-1",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send request body
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send response headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":status", "200",
+					"content-type", "text/event-stream",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send multiple response body chunks with SSE data
+	sseChunks := [][]byte{
+		makeOpenAISSEChunk("Hello"),
+		makeOpenAISSEChunk(" world"),
+		append(makeOpenAISSEChunk("!"), makeOpenAISSEDone()...),
+	}
+
+	for i, chunk := range sseChunks {
+		isLast := i == len(sseChunks)-1
+		err = stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_ResponseBody{
+				ResponseBody: &extprocv3.HttpBody{
+					Body:        chunk,
+					EndOfStream: isLast,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to send response body chunk %d: %v", i, err)
+		}
+
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive response for chunk %d: %v", i, err)
+		}
+
+		// Verify body is echoed
+		bodyResp := resp.GetResponseBody()
+		if bodyResp == nil {
+			t.Fatalf("chunk %d: expected ResponseBody response", i)
+		}
+
+		commonResp := bodyResp.GetResponse()
+		if commonResp == nil {
+			t.Fatalf("chunk %d: expected CommonResponse in ResponseBody response, got nil (empty BodyResponse)", i)
+		}
+
+		bodyMutation := commonResp.GetBodyMutation()
+		if bodyMutation == nil {
+			t.Fatalf("chunk %d: expected BodyMutation in CommonResponse, got nil", i)
+		}
+
+		echoedBody := bodyMutation.GetBody()
+		if string(echoedBody) != string(chunk) {
+			t.Errorf("chunk %d: echoed body = %q, want %q", i, string(echoedBody), string(chunk))
+		}
+	}
+
+	stream.CloseSend()
+
+	// Verify token parsing still works alongside echoing
+	var tokenCount int
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-sub.Events():
+			if !ok {
+				goto verifyTokens
+			}
+			tokenCount++
+			if tokenCount >= 3 {
+				goto verifyTokens
+			}
+		case <-timeout:
+			goto verifyTokens
+		}
+	}
+verifyTokens:
+	if tokenCount != 3 {
+		t.Errorf("expected 3 token chunk events, got %d", tokenCount)
+	}
+}
+
+// TestProcess_EndOfStreamOnlyOnFinalChunk verifies that when multiple
+// response body chunks are echoed, the BodyMutation data includes
+// each chunk's body correctly, and the echo behavior is consistent
+// regardless of the EndOfStream flag value in the request.
+func TestProcess_EndOfStreamOnlyOnFinalChunk(t *testing.T) {
+	_, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-panoptium-request-id", "req-eos-test-1",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send request body
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send response headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":status", "200",
+					"content-type", "text/event-stream",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send 3 response body chunks: first two with EndOfStream=false, last with EndOfStream=true
+	type chunkTest struct {
+		body        []byte
+		endOfStream bool
+	}
+	chunks := []chunkTest{
+		{body: makeOpenAISSEChunk("token1"), endOfStream: false},
+		{body: makeOpenAISSEChunk("token2"), endOfStream: false},
+		{body: append(makeOpenAISSEChunk("token3"), makeOpenAISSEDone()...), endOfStream: true},
+	}
+
+	for i, ct := range chunks {
+		err = stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_ResponseBody{
+				ResponseBody: &extprocv3.HttpBody{
+					Body:        ct.body,
+					EndOfStream: ct.endOfStream,
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("failed to send response body chunk %d: %v", i, err)
+		}
+
+		resp, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("failed to receive response for chunk %d: %v", i, err)
+		}
+
+		bodyResp := resp.GetResponseBody()
+		if bodyResp == nil {
+			t.Fatalf("chunk %d: expected ResponseBody response", i)
+		}
+
+		commonResp := bodyResp.GetResponse()
+		if commonResp == nil {
+			t.Fatalf("chunk %d: expected CommonResponse, got nil (empty BodyResponse)", i)
+		}
+
+		bodyMutation := commonResp.GetBodyMutation()
+		if bodyMutation == nil {
+			t.Fatalf("chunk %d: expected BodyMutation, got nil", i)
+		}
+
+		// Each chunk should echo the exact body data sent
+		echoedBody := bodyMutation.GetBody()
+		if string(echoedBody) != string(ct.body) {
+			t.Errorf("chunk %d: echoed body does not match sent body", i)
+		}
+	}
+
+	stream.CloseSend()
+}
