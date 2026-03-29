@@ -153,6 +153,11 @@ log_info "=== Phase 7: Integration wiring ==="
 kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-backend.yaml"
 kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-route.yaml"
 kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-extproc-policy.yaml"
+
+# Create ClusterRoleBinding for metrics access (required by E2E metric assertions)
+kubectl create clusterrolebinding panoptium-metrics-binding \
+    --clusterrole=panoptium-metrics-reader \
+    --serviceaccount="${NAMESPACE}:panoptium-controller-manager" 2>/dev/null || true
 log_info "Integration wiring applied."
 
 # --------------------------------------------------------------------------

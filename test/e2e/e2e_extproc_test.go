@@ -152,13 +152,13 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 		})
 	})
 
-	Context("Anthropic Streaming via AgentGateway", func() {
-		It("should route Anthropic streaming requests through AgentGateway to mock LLM", func() {
+	Context("Second OpenAI Streaming via AgentGateway", func() {
+		It("should route a second streaming request with different agent through AgentGateway to mock LLM", func() {
 			gwIP := gatewayServiceIP()
 			Expect(gwIP).NotTo(BeEmpty(), "Gateway service IP should be available")
 
-			By("sending a streaming /v1/messages request through AgentGateway")
-			podName := fmt.Sprintf("anthropic-test-%d", time.Now().UnixNano()%100000)
+			By("sending a second streaming /v1/chat/completions request with a different agent ID")
+			podName := fmt.Sprintf("second-test-%d", time.Now().UnixNano()%100000)
 			cmd := exec.Command("kubectl", "run", podName,
 				"--restart=Never",
 				"--rm", "--attach",
@@ -168,11 +168,11 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 				"-X", "POST",
 				fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
 				"-H", "Content-Type: application/json",
-				"-H", "x-panoptium-agent-id: e2e-anthropic-agent",
-				"-d", `{"model":"claude-3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+				"-H", "x-panoptium-agent-id: e2e-second-agent",
+				"-d", `{"model":"gpt-4","messages":[{"role":"user","content":"hi again"}],"stream":true}`)
 
 			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Anthropic request through AgentGateway should succeed")
+			Expect(err).NotTo(HaveOccurred(), "Second request through AgentGateway should succeed")
 
 			By("verifying response contains expected SSE data")
 			Expect(output).To(ContainSubstring("Hello"),
@@ -205,16 +205,16 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 				fmt.Sprintf("Expected panoptium_extproc_tokens_observed_total{provider=openai} > 0, got %v", value))
 		})
 
-		It("should record ExtProc request metrics for Anthropic provider", func() {
-			By("waiting for panoptium_extproc_requests_total{provider=anthropic} >= 1")
+		It("should record ExtProc request metrics for multiple requests", func() {
+			By("waiting for panoptium_extproc_requests_total{provider=openai} >= 2")
 			value, met := waitForMetric(
 				"panoptium_extproc_requests_total",
-				map[string]string{"provider": "anthropic"},
-				1,
+				map[string]string{"provider": "openai"},
+				2,
 				2*time.Minute,
 			)
 			Expect(met).To(BeTrue(),
-				fmt.Sprintf("Expected panoptium_extproc_requests_total{provider=anthropic} >= 1, got %v", value))
+				fmt.Sprintf("Expected panoptium_extproc_requests_total{provider=openai} >= 2, got %v", value))
 		})
 
 		It("should record agent identity resolution metrics", func() {

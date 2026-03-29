@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/panoptium/panoptium/pkg/eventbus"
@@ -131,12 +132,32 @@ func (m *LifecycleManager) Start(ctx context.Context) error {
 	m.started = true
 	m.mu.Unlock()
 
-	// Create the gRPC server
-	m.grpcServer = grpc.NewServer()
+	// Create the gRPC server with interceptors for observability
+	streamInterceptor := func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		logger.Info("gRPC stream opened", "method", info.FullMethod)
+		err := handler(srv, ss)
+		if err != nil {
+			logger.Info("gRPC stream closed with error", "method", info.FullMethod, "error", err)
+		} else {
+			logger.Info("gRPC stream closed", "method", info.FullMethod)
+		}
+		return err
+	}
+	unaryInterceptor := func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		logger.V(1).Info("gRPC unary call", "method", info.FullMethod)
+		return handler(ctx, req)
+	}
+	m.grpcServer = grpc.NewServer(
+		grpc.StreamInterceptor(streamInterceptor),
+		grpc.UnaryInterceptor(unaryInterceptor),
+	)
 
 	// Register the ExtProc service
 	extProcSrv := NewExtProcServer(m.registry, m.resolver, m.bus)
 	extprocv3.RegisterExternalProcessorServer(m.grpcServer, extProcSrv)
+
+	// Register gRPC reflection for debugging
+	reflection.Register(m.grpcServer)
 
 	// Register the health check service
 	healthSrv := health.NewServer()
