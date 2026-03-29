@@ -180,6 +180,63 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 		})
 	})
 
+	Context("ExtProc Metric Assertions", func() {
+		It("should record ExtProc request metrics for OpenAI provider", func() {
+			By("waiting for panoptium_extproc_requests_total{provider=openai} >= 1")
+			value, met := waitForMetric(
+				"panoptium_extproc_requests_total",
+				map[string]string{"provider": "openai"},
+				1,
+				2*time.Minute,
+			)
+			Expect(met).To(BeTrue(),
+				fmt.Sprintf("Expected panoptium_extproc_requests_total{provider=openai} >= 1, got %v", value))
+		})
+
+		It("should record token observation metrics for OpenAI provider", func() {
+			By("waiting for panoptium_extproc_tokens_observed_total{provider=openai} > 0")
+			value, met := waitForMetric(
+				"panoptium_extproc_tokens_observed_total",
+				map[string]string{"provider": "openai"},
+				1,
+				2*time.Minute,
+			)
+			Expect(met).To(BeTrue(),
+				fmt.Sprintf("Expected panoptium_extproc_tokens_observed_total{provider=openai} > 0, got %v", value))
+		})
+
+		It("should record ExtProc request metrics for Anthropic provider", func() {
+			By("waiting for panoptium_extproc_requests_total{provider=anthropic} >= 1")
+			value, met := waitForMetric(
+				"panoptium_extproc_requests_total",
+				map[string]string{"provider": "anthropic"},
+				1,
+				2*time.Minute,
+			)
+			Expect(met).To(BeTrue(),
+				fmt.Sprintf("Expected panoptium_extproc_requests_total{provider=anthropic} >= 1, got %v", value))
+		})
+
+		It("should record agent identity resolution metrics", func() {
+			By("waiting for panoptium_agent_identity_resolution_total to be recorded")
+			value, met := waitForMetric(
+				"panoptium_agent_identity_resolution_total",
+				nil, // match any labels
+				1,
+				2*time.Minute,
+			)
+			Expect(met).To(BeTrue(),
+				fmt.Sprintf("Expected panoptium_agent_identity_resolution_total >= 1, got %v", value))
+		})
+
+		It("should show ExtProc processing evidence in operator logs", func() {
+			By("checking operator logs for ExtProc request processing")
+			logs := getOperatorLogs("ExtProc")
+			Expect(logs).NotTo(BeEmpty(),
+				"Operator logs should contain ExtProc-related entries")
+		})
+	})
+
 	Context("Operator Health and Metrics", func() {
 		It("should have healthy operator endpoints", func() {
 			By("verifying operator health endpoint")
