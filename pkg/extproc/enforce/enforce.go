@@ -105,6 +105,16 @@ func NewUnenrolledDenyResponse(sourceIP string) *extprocv3.ProcessingResponse {
 	})
 }
 
+// NewServiceUnavailableResponse creates a 503 Service Unavailable
+// ImmediateResponse for fail-closed mode when the policy engine is
+// unavailable.
+func NewServiceUnavailableResponse(message string) *extprocv3.ProcessingResponse {
+	return NewImmediateResponse(typev3.StatusCode_ServiceUnavailable, &ErrorResponse{
+		Error:   "service_unavailable",
+		Message: message,
+	})
+}
+
 // NewThrottleResponse creates a 429 Too Many Requests ImmediateResponse for
 // a policy throttle/rate-limit action. It includes a Retry-After header and
 // a structured JSON error body.

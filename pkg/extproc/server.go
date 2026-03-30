@@ -61,17 +61,20 @@ type ExtProcServer struct {
 	resolver        *identity.Resolver
 	bus             eventbus.EventBus
 	enforcementMode enforce.EnforcementMode
+	failureMode     enforce.FailureMode
 	policyEvaluator PolicyEvaluator
 }
 
 // NewExtProcServer creates a new ExtProcServer with the given dependencies.
 // The default enforcement mode is audit (observe-only, no blocking).
+// The default failure mode is fail-open (pass traffic on engine errors).
 func NewExtProcServer(registry *observer.ObserverRegistry, resolver *identity.Resolver, bus eventbus.EventBus) *ExtProcServer {
 	return &ExtProcServer{
 		registry:        registry,
 		resolver:        resolver,
 		bus:             bus,
 		enforcementMode: enforce.ModeAudit,
+		failureMode:     enforce.FailOpen,
 	}
 }
 
@@ -81,6 +84,13 @@ func NewExtProcServer(registry *observer.ObserverRegistry, resolver *identity.Re
 // events emitted.
 func (s *ExtProcServer) SetEnforcementMode(mode enforce.EnforcementMode) {
 	s.enforcementMode = mode
+}
+
+// SetFailureMode configures the failure behavior when the policy engine
+// is unavailable or returns an error. In FailOpen mode, traffic passes
+// through with warning events. In FailClosed mode, 503 is returned.
+func (s *ExtProcServer) SetFailureMode(mode enforce.FailureMode) {
+	s.failureMode = mode
 }
 
 // SetPolicyEvaluator configures the policy evaluator used for request-path
@@ -280,12 +290,11 @@ func (s *ExtProcServer) handleRequestHeaders(ctx context.Context, state *streamS
 
 		decision, err := s.policyEvaluator.Evaluate(policyEvent)
 		if err != nil {
-			if l, ok := logger.(interface {
-				Info(string, ...interface{})
-			}); ok {
-				l.Info("policy evaluation error", "error", err, "requestID", requestID)
+			resp := s.handleEvaluationError(err, agentIdentity, requestID, logger)
+			if resp != nil {
+				return resp
 			}
-			// On evaluation error, fall through to pass-through (fail-open default)
+			// fail-open: fall through to pass-through
 		} else if decision != nil && decision.Matched {
 			resp := s.applyEnforcementDecision(decision, agentIdentity, requestID)
 			if resp != nil {
@@ -412,12 +421,12 @@ func (s *ExtProcServer) handleResponseBody(ctx context.Context, state *streamSta
 
 		decision, err := s.policyEvaluator.Evaluate(policyEvent)
 		if err != nil {
-			if l, ok := logger.(interface {
-				Info(string, ...interface{})
-			}); ok {
-				l.Info("response policy evaluation error", "error", err,
-					"requestID", state.streamCtx.RequestID)
+			resp := s.handleEvaluationError(err, state.streamCtx.AgentIdentity, state.streamCtx.RequestID, logger)
+			if resp != nil {
+				s.finalizeStream(ctx, state)
+				return resp
 			}
+			// fail-open: fall through to pass-through
 		} else if decision != nil && decision.Matched {
 			resp := s.applyEnforcementDecision(decision, state.streamCtx.AgentIdentity, state.streamCtx.RequestID)
 			if resp != nil {
@@ -486,6 +495,54 @@ func (s *ExtProcServer) emitRequestStartEvent(state *streamState) {
 		Model:  state.streamCtx.Model,
 		Stream: state.streamCtx.Stream,
 	})
+}
+
+// handleEvaluationError handles policy evaluation errors based on the
+// configured failure mode. In fail-open mode, it emits a warning event
+// and returns nil (pass-through). In fail-closed mode, it emits an error
+// event and returns a 503 ImmediateResponse.
+func (s *ExtProcServer) handleEvaluationError(err error, agentIdentity eventbus.AgentIdentity, requestID string, logger interface{ Info(string, ...interface{}) }) *extprocv3.ProcessingResponse {
+	switch s.failureMode {
+	case enforce.FailClosed:
+		if l, ok := logger.(interface {
+			Info(string, ...interface{})
+		}); ok {
+			l.Info("policy evaluation error (fail-closed: returning 503)",
+				"error", err, "requestID", requestID)
+		}
+		s.bus.Emit(&eventbus.EnforcementEvent{
+			BaseEvent: eventbus.BaseEvent{
+				Type:      eventbus.EventTypeEnforcementUnavailable,
+				Time:      time.Now(),
+				ReqID:     requestID,
+				AgentInfo: agentIdentity,
+			},
+			Reason: fmt.Sprintf("policy engine error: %v", err),
+			Action: "block",
+		})
+		return enforce.NewServiceUnavailableResponse(
+			fmt.Sprintf("policy engine unavailable: %v", err),
+		)
+
+	default: // FailOpen
+		if l, ok := logger.(interface {
+			Info(string, ...interface{})
+		}); ok {
+			l.Info("policy evaluation error (fail-open: passing through)",
+				"error", err, "requestID", requestID)
+		}
+		s.bus.Emit(&eventbus.EnforcementEvent{
+			BaseEvent: eventbus.BaseEvent{
+				Type:      eventbus.EventTypeEnforcementBypass,
+				Time:      time.Now(),
+				ReqID:     requestID,
+				AgentInfo: agentIdentity,
+			},
+			Reason: fmt.Sprintf("policy engine error: %v", err),
+			Action: "pass-through",
+		})
+		return nil
+	}
 }
 
 // applyEnforcementDecision routes a matched policy decision to the appropriate
