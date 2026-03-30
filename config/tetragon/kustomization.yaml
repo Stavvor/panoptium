@@ -1,0 +1,11 @@
+# Tetragon integration for Panoptium.
+# Tetragon itself is deployed via its own Helm chart (cilium/tetragon).
+# This overlay manages Panoptium-specific TracingPolicy CRDs and RBAC.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: panoptium-system
+
+resources:
+  - rbac.yaml
+  - tetragon-config.yaml

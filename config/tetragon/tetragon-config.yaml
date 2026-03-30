@@ -1,0 +1,34 @@
+# Tetragon deployment configuration for Panoptium.
+#
+# Tetragon is deployed as a separate Helm release:
+#   helm install tetragon cilium/tetragon -n kube-system \
+#     --set tetragon.grpc.enabled=true \
+#     --set tetragon.grpc.address=0.0.0.0:54321 \
+#     --set tetragon.exportAllowList='{"event_set":["PROCESS_EXEC","PROCESS_EXIT","PROCESS_KPROBE","PROCESS_TRACEPOINT","PROCESS_LSM"]}' \
+#     --set tetragon.enableProcessCred=true \
+#     --set tetragon.enableProcessNs=true
+#
+# This ConfigMap captures the Panoptium-side configuration for connecting
+# to Tetragon's gRPC endpoint and customizing event consumption.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: panoptium-tetragon-config
+  namespace: panoptium-system
+  labels:
+    app.kubernetes.io/name: panoptium
+    app.kubernetes.io/component: tetragon-integration
+data:
+  # Tetragon gRPC address. When running in-cluster, Tetragon exposes gRPC
+  # via a Unix domain socket on each node or a ClusterIP service.
+  # Default: tetragon-grpc.kube-system.svc.cluster.local:54321
+  TETRAGON_GRPC_ADDRESS: "tetragon.kube-system.svc.cluster.local:54321"
+
+  # Fallback to JSON export if gRPC is unavailable.
+  # Path to the Tetragon JSON export log file (mounted from host).
+  TETRAGON_JSON_LOG_PATH: "/var/run/cilium/tetragon/tetragon.log"
+
+  # Reconnect backoff configuration.
+  TETRAGON_RECONNECT_INITIAL_BACKOFF: "1s"
+  TETRAGON_RECONNECT_MAX_BACKOFF: "30s"
+  TETRAGON_RECONNECT_MULTIPLIER: "2"
