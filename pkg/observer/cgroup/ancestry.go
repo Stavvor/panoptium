@@ -22,8 +22,9 @@ import "sync"
 const maxAncestryDepth = 32
 
 // ProcessTreeTracker maintains a PID -> parent PID mapping for process
-// ancestry chain reconstruction. In production, the map is populated
-// from sched_process_fork eBPF events and cleaned up on sched_process_exit.
+// ancestry chain reconstruction. The map is populated from Tetragon
+// ProcessExec events (which include parent info) and cleaned up on
+// ProcessExit events.
 type ProcessTreeTracker struct {
 	mu sync.RWMutex
 	// tree maps child PID to parent PID.
@@ -130,4 +131,51 @@ func (t *ProcessTreeTracker) GetParent(pid uint32) uint32 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.tree[pid]
+}
+
+// maxTetragonAncestryDepth limits how many levels of Tetragon parent chain to ingest.
+const maxTetragonAncestryDepth = 5
+
+// TetragonProcessInfo holds process information from a Tetragon event.
+// This provides a clean interface without importing the Tetragon package.
+type TetragonProcessInfo struct {
+	// PID of the process.
+	PID uint32
+	// ParentPID of the process.
+	ParentPID uint32
+	// AncestorPIDs is the chain of ancestor PIDs from Tetragon's parent field.
+	// Index 0 is the grandparent, index 1 is the great-grandparent, etc.
+	AncestorPIDs []uint32
+}
+
+// HandleProcessExec ingests a Tetragon ProcessExec event to build ancestry.
+// It records the process's parent relationship and optionally ingests
+// the ancestor chain up to maxTetragonAncestryDepth levels.
+func (t *ProcessTreeTracker) HandleProcessExec(info TetragonProcessInfo) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if info.ParentPID != 0 {
+		t.tree[info.PID] = info.ParentPID
+		delete(t.ancestryCache, info.PID)
+	}
+
+	// Ingest ancestor chain from Tetragon's parent field.
+	current := info.ParentPID
+	for i, ancestor := range info.AncestorPIDs {
+		if i >= maxTetragonAncestryDepth || current == 0 || ancestor == 0 {
+			break
+		}
+		if _, exists := t.tree[current]; !exists {
+			t.tree[current] = ancestor
+			delete(t.ancestryCache, current)
+		}
+		current = ancestor
+	}
+}
+
+// HandleProcessExit cleans up the process tree when a process exits.
+// This prevents unbounded growth of the tree map.
+func (t *ProcessTreeTracker) HandleProcessExit(pid uint32) {
+	t.RemoveProcess(pid)
 }

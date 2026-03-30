@@ -15,14 +15,17 @@ limitations under the License.
 */
 
 // Package cgroup provides cgroup ID to Kubernetes pod identity resolution
-// for the eBPF observer.
+// for the Panoptium observer. It serves as a supplementary enrichment layer
+// for cases where Tetragon metadata is insufficient (e.g., short-lived
+// containers, custom cgroup hierarchies).
 package cgroup
 
 import (
+	"container/list"
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
+	"sync/atomic"
 )
 
 // PodIdentity contains the resolved Kubernetes pod identity for a cgroup.
@@ -48,20 +51,32 @@ type PodInformer interface {
 	GetPodByContainerID(containerID string) *PodIdentity
 }
 
-// cacheEntry holds a cached cgroup-to-pod resolution.
-type cacheEntry struct {
-	identity  *PodIdentity
-	timestamp time.Time
+// lruEntry holds a cached cgroup-to-pod resolution with LRU tracking.
+type lruEntry struct {
+	key      uint64
+	identity *PodIdentity
 }
 
-// CgroupResolver maps eBPF cgroup IDs to Kubernetes pod identities.
+// CacheMetrics tracks cache performance counters.
+type CacheMetrics struct {
+	// Hits counts cache hits.
+	Hits atomic.Int64
+	// Misses counts cache misses.
+	Misses atomic.Int64
+}
+
+// CgroupResolver maps cgroup IDs to Kubernetes pod identities.
 // It uses a two-step resolution: cgroup ID -> container ID (via cgroup filesystem)
 // and container ID -> pod identity (via Kubernetes informer cache).
+// The cache uses an O(1) LRU eviction policy.
 type CgroupResolver struct {
 	mu sync.RWMutex
 
-	// cache maps cgroup IDs to resolved pod identities.
-	cache map[uint64]*cacheEntry
+	// lruList maintains entries in access order (front = most recent).
+	lruList *list.List
+
+	// cache maps cgroup IDs to LRU list elements for O(1) lookup and eviction.
+	cache map[uint64]*list.Element
 
 	// containerMap maps cgroup IDs to container IDs (populated from cgroup fs).
 	containerMap map[uint64]string
@@ -74,6 +89,9 @@ type CgroupResolver struct {
 
 	// cgroupBasePath is the base path for the cgroup filesystem.
 	cgroupBasePath string
+
+	// metrics tracks cache hit/miss counters.
+	metrics CacheMetrics
 }
 
 // ResolverOption configures the CgroupResolver.
@@ -96,7 +114,8 @@ func WithCgroupBasePath(path string) ResolverOption {
 // NewCgroupResolver creates a new CgroupResolver with the given PodInformer.
 func NewCgroupResolver(informer PodInformer, opts ...ResolverOption) *CgroupResolver {
 	r := &CgroupResolver{
-		cache:          make(map[uint64]*cacheEntry),
+		lruList:        list.New(),
+		cache:          make(map[uint64]*list.Element),
 		containerMap:   make(map[uint64]string),
 		informer:       informer,
 		maxCacheSize:   4096,
@@ -110,13 +129,18 @@ func NewCgroupResolver(informer PodInformer, opts ...ResolverOption) *CgroupReso
 
 // Resolve maps a cgroup ID to a PodIdentity.
 // Returns nil if the cgroup ID cannot be resolved to a known pod.
-// Cached lookups return within 1ms (per FR-4).
+// Cached lookups are O(1) via LRU.
 func (r *CgroupResolver) Resolve(cgroupID uint64) *PodIdentity {
-	// Fast path: check cache.
+	// Fast path: check cache with read lock.
 	r.mu.RLock()
-	if entry, ok := r.cache[cgroupID]; ok {
+	if elem, ok := r.cache[cgroupID]; ok {
 		r.mu.RUnlock()
-		return entry.identity
+		// Promote to front requires write lock.
+		r.mu.Lock()
+		r.lruList.MoveToFront(elem)
+		r.mu.Unlock()
+		r.metrics.Hits.Add(1)
+		return elem.Value.(*lruEntry).identity
 	}
 	r.mu.RUnlock()
 
@@ -125,9 +149,13 @@ func (r *CgroupResolver) Resolve(cgroupID uint64) *PodIdentity {
 	defer r.mu.Unlock()
 
 	// Double-check after acquiring write lock.
-	if entry, ok := r.cache[cgroupID]; ok {
-		return entry.identity
+	if elem, ok := r.cache[cgroupID]; ok {
+		r.lruList.MoveToFront(elem)
+		r.metrics.Hits.Add(1)
+		return elem.Value.(*lruEntry).identity
 	}
+
+	r.metrics.Misses.Add(1)
 
 	// Step 1: cgroup ID -> container ID.
 	containerID, ok := r.containerMap[cgroupID]
@@ -145,12 +173,11 @@ func (r *CgroupResolver) Resolve(cgroupID uint64) *PodIdentity {
 		return nil
 	}
 
-	// Cache the result.
+	// Cache the result with O(1) LRU eviction.
 	r.evictIfNeeded()
-	r.cache[cgroupID] = &cacheEntry{
-		identity:  identity,
-		timestamp: time.Now(),
-	}
+	entry := &lruEntry{key: cgroupID, identity: identity}
+	elem := r.lruList.PushFront(entry)
+	r.cache[cgroupID] = elem
 
 	return identity
 }
@@ -175,7 +202,10 @@ func (r *CgroupResolver) UnregisterContainer(cgroupID uint64) {
 	defer r.mu.Unlock()
 
 	delete(r.containerMap, cgroupID)
-	delete(r.cache, cgroupID)
+	if elem, ok := r.cache[cgroupID]; ok {
+		r.lruList.Remove(elem)
+		delete(r.cache, cgroupID)
+	}
 }
 
 // CacheSize returns the current number of entries in the cache.
@@ -185,32 +215,30 @@ func (r *CgroupResolver) CacheSize() int {
 	return len(r.cache)
 }
 
-// evictIfNeeded removes the oldest cache entry if the cache is at capacity.
-// Must be called with r.mu held.
+// CacheMetricsSnapshot returns the current cache hit/miss counters.
+func (r *CgroupResolver) CacheMetricsSnapshot() CacheMetrics {
+	return r.metrics
+}
+
+// evictIfNeeded removes the least recently used cache entry if at capacity.
+// Must be called with r.mu held. O(1) operation.
 func (r *CgroupResolver) evictIfNeeded() {
 	if len(r.cache) < r.maxCacheSize {
 		return
 	}
 
-	// Find and remove the oldest entry.
-	var oldestKey uint64
-	var oldestTime time.Time
-	first := true
-
-	for k, v := range r.cache {
-		if first || v.timestamp.Before(oldestTime) {
-			oldestKey = k
-			oldestTime = v.timestamp
-			first = false
-		}
+	// Remove the least recently used entry (back of list).
+	back := r.lruList.Back()
+	if back == nil {
+		return
 	}
 
-	if !first {
-		delete(r.cache, oldestKey)
-		slog.Debug("evicted cache entry",
-			"cgroup_id", oldestKey,
-		)
-	}
+	entry := back.Value.(*lruEntry)
+	r.lruList.Remove(back)
+	delete(r.cache, entry.key)
+	slog.Debug("evicted cache entry",
+		"cgroup_id", entry.key,
+	)
 }
 
 // String returns a human-readable summary of the resolver state.

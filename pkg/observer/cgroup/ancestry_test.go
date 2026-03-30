@@ -188,3 +188,136 @@ func TestGetAncestryCycleDetection(t *testing.T) {
 		t.Errorf("ancestry chain too long, possible infinite loop: %d", len(chain))
 	}
 }
+
+// --- Tetragon-specific tests ---
+
+func TestHandleProcessExecBuildsAncestry(t *testing.T) {
+	tracker := NewProcessTreeTracker()
+
+	// Simulate Tetragon ProcessExec with parent chain.
+	tracker.HandleProcessExec(TetragonProcessInfo{
+		PID:       1000,
+		ParentPID: 100,
+		AncestorPIDs: []uint32{10, 1},
+	})
+
+	// Check direct parent.
+	if tracker.GetParent(1000) != 100 {
+		t.Errorf("expected parent 100, got %d", tracker.GetParent(1000))
+	}
+
+	// Check full ancestry chain.
+	chain := tracker.GetAncestry(1000)
+	expected := []uint32{1000, 100, 10, 1}
+	if len(chain) != len(expected) {
+		t.Fatalf("expected chain length %d, got %d: %v", len(expected), len(chain), chain)
+	}
+	for i, pid := range expected {
+		if chain[i] != pid {
+			t.Errorf("chain[%d]: expected %d, got %d", i, pid, chain[i])
+		}
+	}
+}
+
+func TestHandleProcessExitCleansUp(t *testing.T) {
+	tracker := NewProcessTreeTracker()
+
+	tracker.HandleProcessExec(TetragonProcessInfo{
+		PID:       500,
+		ParentPID: 100,
+	})
+
+	if tracker.TreeSize() != 1 {
+		t.Fatalf("expected tree size 1, got %d", tracker.TreeSize())
+	}
+
+	tracker.HandleProcessExit(500)
+
+	if tracker.TreeSize() != 0 {
+		t.Errorf("expected tree size 0 after exit, got %d", tracker.TreeSize())
+	}
+	if tracker.GetParent(500) != 0 {
+		t.Error("expected parent 0 after exit")
+	}
+}
+
+func TestHandleProcessExecDoesNotOverwriteExistingParent(t *testing.T) {
+	tracker := NewProcessTreeTracker()
+
+	// First exec establishes parent for PID 100.
+	tracker.HandleProcessExec(TetragonProcessInfo{
+		PID:       200,
+		ParentPID: 100,
+		AncestorPIDs: []uint32{50},
+	})
+
+	// Manually set 100's parent.
+	tracker.AddFork(99, 100)
+
+	// Second exec for PID 300 also has 100 in its ancestor chain.
+	tracker.HandleProcessExec(TetragonProcessInfo{
+		PID:       300,
+		ParentPID: 100,
+		AncestorPIDs: []uint32{50},
+	})
+
+	// The existing parent for PID 100 should NOT be overwritten.
+	if tracker.GetParent(100) != 99 {
+		t.Errorf("expected parent of 100 to remain 99, got %d", tracker.GetParent(100))
+	}
+}
+
+func TestHandleProcessExecAncestryDepthLimit(t *testing.T) {
+	tracker := NewProcessTreeTracker()
+
+	// Create a very long ancestor chain (more than maxTetragonAncestryDepth).
+	ancestors := make([]uint32, 10)
+	for i := range ancestors {
+		ancestors[i] = uint32(100 + i)
+	}
+
+	tracker.HandleProcessExec(TetragonProcessInfo{
+		PID:          1000,
+		ParentPID:    50,
+		AncestorPIDs: ancestors,
+	})
+
+	// Should have the process + parent + up to maxTetragonAncestryDepth ancestors.
+	// PID 1000->50, 50->100, 100->101, 101->102, 102->103, 103->104
+	// = 1 + 5 = 6 entries max (the direct parent plus 5 ancestors).
+	if tracker.TreeSize() > maxTetragonAncestryDepth+1 {
+		t.Errorf("expected at most %d entries, got %d", maxTetragonAncestryDepth+1, tracker.TreeSize())
+	}
+}
+
+func TestAncestryChainWalkAfterTetragonMigration(t *testing.T) {
+	tracker := NewProcessTreeTracker()
+
+	// Simulate a series of Tetragon ProcessExec events.
+	tracker.HandleProcessExec(TetragonProcessInfo{
+		PID:       10,
+		ParentPID: 1,
+	})
+	tracker.HandleProcessExec(TetragonProcessInfo{
+		PID:       100,
+		ParentPID: 10,
+		AncestorPIDs: []uint32{1},
+	})
+	tracker.HandleProcessExec(TetragonProcessInfo{
+		PID:       1000,
+		ParentPID: 100,
+		AncestorPIDs: []uint32{10, 1},
+	})
+
+	// Walk ancestry from the deepest process.
+	chain := tracker.GetAncestry(1000)
+	expected := []uint32{1000, 100, 10, 1}
+	if len(chain) != len(expected) {
+		t.Fatalf("expected chain length %d, got %d: %v", len(expected), len(chain), chain)
+	}
+	for i, pid := range expected {
+		if chain[i] != pid {
+			t.Errorf("chain[%d]: expected %d, got %d", i, pid, chain[i])
+		}
+	}
+}

@@ -17,6 +17,7 @@ limitations under the License.
 package cgroup
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -226,6 +227,72 @@ func TestResolveNilInformer(t *testing.T) {
 	identity := resolver.Resolve(100)
 	if identity != nil {
 		t.Error("expected nil with nil informer")
+	}
+}
+
+func TestLRUEvictionOrder(t *testing.T) {
+	informer := newMockInformer()
+	resolver := NewCgroupResolver(informer, WithMaxCacheSize(3))
+
+	// Register and resolve 3 containers.
+	for i := uint64(1); i <= 3; i++ {
+		cID := fmt.Sprintf("container-%d", i)
+		informer.pods[cID] = &PodIdentity{
+			PodName:   fmt.Sprintf("pod-%d", i),
+			Namespace: "default",
+		}
+		resolver.RegisterContainer(i, cID)
+		resolver.Resolve(i)
+	}
+
+	if resolver.CacheSize() != 3 {
+		t.Fatalf("expected cache size 3, got %d", resolver.CacheSize())
+	}
+
+	// Access cgroup 1 to make it recently used.
+	resolver.Resolve(1)
+
+	// Add a 4th container - should evict cgroup 2 (least recently used).
+	informer.pods["container-4"] = &PodIdentity{
+		PodName:   "pod-4",
+		Namespace: "default",
+	}
+	resolver.RegisterContainer(4, "container-4")
+	resolver.Resolve(4)
+
+	if resolver.CacheSize() != 3 {
+		t.Fatalf("expected cache size 3 after eviction, got %d", resolver.CacheSize())
+	}
+
+	// Cgroup 1 should still be cached (was recently accessed).
+	if identity := resolver.Resolve(1); identity == nil {
+		t.Error("expected cgroup 1 to still be in cache (recently used)")
+	}
+}
+
+func TestCacheHitMissMetrics(t *testing.T) {
+	informer := newMockInformer()
+	informer.pods["abc"] = &PodIdentity{
+		PodName:   "pod-1",
+		Namespace: "default",
+	}
+
+	resolver := NewCgroupResolver(informer)
+	resolver.RegisterContainer(1, "abc")
+
+	// First resolve is a miss.
+	resolver.Resolve(1)
+	// Second resolve is a hit.
+	resolver.Resolve(1)
+	// Unknown cgroup is a miss.
+	resolver.Resolve(999)
+
+	metrics := resolver.CacheMetricsSnapshot()
+	if metrics.Hits.Load() < 1 {
+		t.Errorf("expected at least 1 cache hit, got %d", metrics.Hits.Load())
+	}
+	if metrics.Misses.Load() < 1 {
+		t.Errorf("expected at least 1 cache miss, got %d", metrics.Misses.Load())
 	}
 }
 
