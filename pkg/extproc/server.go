@@ -389,6 +389,45 @@ func (s *ExtProcServer) handleResponseBody(ctx context.Context, state *streamSta
 		}
 	}
 
+	// Response-path policy evaluation: evaluate each response chunk
+	if s.policyEvaluator != nil && state.streamCtx != nil {
+		subcategory := "llm_response_chunk"
+		if body.GetEndOfStream() {
+			subcategory = "llm_response"
+		}
+
+		policyEvent := &policy.PolicyEvent{
+			Category:    "protocol",
+			Subcategory: subcategory,
+			Timestamp:   time.Now(),
+			Namespace:   state.streamCtx.AgentIdentity.Namespace,
+			PodName:     state.streamCtx.AgentIdentity.PodName,
+			PodLabels:   state.streamCtx.AgentIdentity.Labels,
+			Fields: map[string]interface{}{
+				"responseBody": string(body.GetBody()),
+				"endOfStream":  body.GetEndOfStream(),
+				"requestID":    state.streamCtx.RequestID,
+			},
+		}
+
+		decision, err := s.policyEvaluator.Evaluate(policyEvent)
+		if err != nil {
+			if l, ok := logger.(interface {
+				Info(string, ...interface{})
+			}); ok {
+				l.Info("response policy evaluation error", "error", err,
+					"requestID", state.streamCtx.RequestID)
+			}
+		} else if decision != nil && decision.Matched {
+			resp := s.applyEnforcementDecision(decision, state.streamCtx.AgentIdentity, state.streamCtx.RequestID)
+			if resp != nil {
+				// Mid-stream enforcement: stop streaming and return enforcement response
+				s.finalizeStream(ctx, state)
+				return resp
+			}
+		}
+	}
+
 	// If this is the end of stream for the response body, finalize
 	if body.GetEndOfStream() {
 		s.finalizeStream(ctx, state)
