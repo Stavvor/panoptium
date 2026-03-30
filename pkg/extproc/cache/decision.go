@@ -298,6 +298,43 @@ func (c *PolicyDecisionCache) InvalidateSession(sessionID string) {
 	c.taskMu.Unlock()
 }
 
+// GetEntryVersion returns the policy resource version stored with the
+// cache entry for the given key and tier. Returns ("", false) if the
+// entry does not exist.
+func (c *PolicyDecisionCache) GetEntryVersion(key CacheKey, tier CacheTier) (string, bool) {
+	switch tier {
+	case TierUniversal:
+		v, ok := c.universal.Load(key.universalKey())
+		if !ok {
+			return "", false
+		}
+		entry := v.(*cacheEntry)
+		if time.Now().After(entry.expiresAt) {
+			return "", false
+		}
+		return entry.policyVersion, true
+
+	case TierTaskScoped:
+		c.taskMu.RLock()
+		sessMap, ok := c.taskData[key.SessionID]
+		if !ok {
+			c.taskMu.RUnlock()
+			return "", false
+		}
+		entry, ok := sessMap[key.taskScopedKey()]
+		c.taskMu.RUnlock()
+		if !ok {
+			return "", false
+		}
+		if time.Now().After(entry.expiresAt) {
+			return "", false
+		}
+		return entry.policyVersion, true
+	}
+
+	return "", false
+}
+
 // Flush removes all entries from all cache tiers.
 func (c *PolicyDecisionCache) Flush() {
 	// Clear universal tier

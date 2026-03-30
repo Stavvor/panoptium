@@ -401,6 +401,243 @@ func TestConcurrentCacheAccess_StoreAndInvalidate(t *testing.T) {
 	wg.Wait()
 }
 
+// --- Policy CRD Invalidation Tests ---
+
+func TestInvalidatePolicy_UniversalTierEvictsMatchingEntries(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	d := &policy.Decision{Matched: true, MatchedRule: "rule-a", Action: policy.CompiledAction{Type: "deny"}}
+
+	key1 := CacheKey{Tool: "curl", Action: "execute", PolicyKey: "default/pol-a"}
+	key2 := CacheKey{Tool: "wget", Action: "execute", PolicyKey: "default/pol-a"}
+	key3 := CacheKey{Tool: "curl", Action: "execute", PolicyKey: "default/pol-b"}
+
+	c.Store(key1, TierUniversal, d, "default/pol-a", "v1")
+	c.Store(key2, TierUniversal, d, "default/pol-a", "v1")
+	c.Store(key3, TierUniversal, d, "default/pol-b", "v1")
+
+	// Invalidate pol-a
+	c.InvalidatePolicy("default/pol-a")
+
+	// pol-a entries should be evicted
+	_, hit1 := c.Lookup(key1, TierUniversal)
+	_, hit2 := c.Lookup(key2, TierUniversal)
+	if hit1 || hit2 {
+		t.Fatal("expected pol-a entries to be evicted after InvalidatePolicy")
+	}
+
+	// pol-b entry should remain
+	_, hit3 := c.Lookup(key3, TierUniversal)
+	if !hit3 {
+		t.Fatal("expected pol-b entry to remain after InvalidatePolicy for pol-a")
+	}
+}
+
+func TestInvalidatePolicy_PartialInvalidation(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	dA := &policy.Decision{Matched: true, MatchedRule: "rule-a", Action: policy.CompiledAction{Type: "deny"}}
+	dB := &policy.Decision{Matched: true, MatchedRule: "rule-b", Action: policy.CompiledAction{Type: "allow"}}
+
+	keyA := CacheKey{Tool: "curl", Action: "execute", PolicyKey: "default/pol-a"}
+	keyB := CacheKey{Tool: "wget", Action: "execute", PolicyKey: "default/pol-b"}
+
+	c.Store(keyA, TierUniversal, dA, "default/pol-a", "v1")
+	c.Store(keyB, TierUniversal, dB, "default/pol-b", "v1")
+
+	// Invalidate only pol-a
+	c.InvalidatePolicy("default/pol-a")
+
+	_, hitA := c.Lookup(keyA, TierUniversal)
+	if hitA {
+		t.Fatal("expected pol-a to be evicted")
+	}
+
+	got, hitB := c.Lookup(keyB, TierUniversal)
+	if !hitB {
+		t.Fatal("expected pol-b to remain")
+	}
+	if got.MatchedRule != "rule-b" {
+		t.Errorf("expected remaining entry to be rule-b, got %q", got.MatchedRule)
+	}
+}
+
+func TestInvalidatePolicy_DeleteFlushesAllEntriesForPolicy(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	d := &policy.Decision{Matched: true, Action: policy.CompiledAction{Type: "deny"}}
+
+	// Store entries in both universal and task-scoped tiers for the same policy
+	uniKey := CacheKey{Tool: "curl", Action: "execute", PolicyKey: "default/del-pol"}
+	taskKey := CacheKey{Tool: "curl", Action: "execute", SessionID: "sess-1", PolicyKey: "default/del-pol"}
+
+	c.Store(uniKey, TierUniversal, d, "default/del-pol", "v1")
+	c.Store(taskKey, TierTaskScoped, d, "default/del-pol", "v1")
+
+	// Invalidate simulates a policy deletion
+	c.InvalidatePolicy("default/del-pol")
+
+	_, hitUni := c.Lookup(uniKey, TierUniversal)
+	_, hitTask := c.Lookup(taskKey, TierTaskScoped)
+	if hitUni || hitTask {
+		t.Fatal("expected all entries for deleted policy to be flushed")
+	}
+}
+
+func TestInvalidatePolicy_VersionTracking(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	key := CacheKey{Tool: "curl", Action: "execute", PolicyKey: "default/versioned-pol"}
+
+	// Store with version v1
+	d1 := &policy.Decision{Matched: true, MatchedRule: "rule-v1", Action: policy.CompiledAction{Type: "deny"}}
+	c.Store(key, TierUniversal, d1, "default/versioned-pol", "v1")
+
+	// Check version is v1
+	version, ok := c.GetEntryVersion(key, TierUniversal)
+	if !ok {
+		t.Fatal("expected to find entry version")
+	}
+	if version != "v1" {
+		t.Errorf("expected version v1, got %q", version)
+	}
+
+	// Invalidate and re-store with version v2
+	c.InvalidatePolicy("default/versioned-pol")
+	d2 := &policy.Decision{Matched: true, MatchedRule: "rule-v2", Action: policy.CompiledAction{Type: "allow"}}
+	c.Store(key, TierUniversal, d2, "default/versioned-pol", "v2")
+
+	// Check version is now v2
+	version, ok = c.GetEntryVersion(key, TierUniversal)
+	if !ok {
+		t.Fatal("expected to find entry version after re-store")
+	}
+	if version != "v2" {
+		t.Errorf("expected version v2 after re-store, got %q", version)
+	}
+}
+
+func TestInvalidatePolicy_TaskScopedAlsoEvicted(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	d := &policy.Decision{Matched: true, Action: policy.CompiledAction{Type: "deny"}}
+
+	key1 := CacheKey{Tool: "curl", Action: "execute", SessionID: "sess-a", PolicyKey: "default/pol-x"}
+	key2 := CacheKey{Tool: "wget", Action: "execute", SessionID: "sess-b", PolicyKey: "default/pol-x"}
+	key3 := CacheKey{Tool: "curl", Action: "execute", SessionID: "sess-a", PolicyKey: "default/pol-y"}
+
+	c.Store(key1, TierTaskScoped, d, "default/pol-x", "v1")
+	c.Store(key2, TierTaskScoped, d, "default/pol-x", "v1")
+	c.Store(key3, TierTaskScoped, d, "default/pol-y", "v1")
+
+	// Invalidate pol-x should evict task-scoped entries too
+	c.InvalidatePolicy("default/pol-x")
+
+	_, hit1 := c.Lookup(key1, TierTaskScoped)
+	_, hit2 := c.Lookup(key2, TierTaskScoped)
+	if hit1 || hit2 {
+		t.Fatal("expected pol-x task-scoped entries to be evicted")
+	}
+
+	_, hit3 := c.Lookup(key3, TierTaskScoped)
+	if !hit3 {
+		t.Fatal("expected pol-y task-scoped entry to remain")
+	}
+}
+
+// --- CacheTier String Tests ---
+
+func TestCacheTier_String(t *testing.T) {
+	tests := []struct {
+		tier CacheTier
+		want string
+	}{
+		{TierUniversal, "universal"},
+		{TierTaskScoped, "task-scoped"},
+		{TierOnce, "once"},
+		{CacheTier(99), "unknown(99)"},
+	}
+	for _, tt := range tests {
+		if got := tt.tier.String(); got != tt.want {
+			t.Errorf("CacheTier(%d).String() = %q, want %q", int(tt.tier), got, tt.want)
+		}
+	}
+}
+
+// --- GetEntryVersion Tests ---
+
+func TestGetEntryVersion_MissingKey(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	key := CacheKey{Tool: "nonexistent", Action: "execute", PolicyKey: "default/pol"}
+	_, ok := c.GetEntryVersion(key, TierUniversal)
+	if ok {
+		t.Fatal("expected no version for missing key")
+	}
+}
+
+func TestGetEntryVersion_TaskScoped(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	key := CacheKey{Tool: "curl", Action: "execute", SessionID: "sess-v", PolicyKey: "default/pol"}
+	d := &policy.Decision{Matched: true, Action: policy.CompiledAction{Type: "deny"}}
+	c.Store(key, TierTaskScoped, d, "default/pol", "v3")
+
+	version, ok := c.GetEntryVersion(key, TierTaskScoped)
+	if !ok {
+		t.Fatal("expected to find task-scoped entry version")
+	}
+	if version != "v3" {
+		t.Errorf("expected version v3, got %q", version)
+	}
+}
+
+func TestGetEntryVersion_TaskScoped_MissingSession(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	key := CacheKey{Tool: "curl", Action: "execute", SessionID: "no-such-session", PolicyKey: "default/pol"}
+	_, ok := c.GetEntryVersion(key, TierTaskScoped)
+	if ok {
+		t.Fatal("expected no version for missing session")
+	}
+}
+
+func TestGetEntryVersion_TaskScoped_MissingKey(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	// Store one entry to create the session
+	key1 := CacheKey{Tool: "curl", Action: "execute", SessionID: "sess-exists", PolicyKey: "default/pol"}
+	d := &policy.Decision{Matched: true, Action: policy.CompiledAction{Type: "deny"}}
+	c.Store(key1, TierTaskScoped, d, "default/pol", "v1")
+
+	// Look up a different key in the same session
+	key2 := CacheKey{Tool: "wget", Action: "execute", SessionID: "sess-exists", PolicyKey: "default/pol"}
+	_, ok := c.GetEntryVersion(key2, TierTaskScoped)
+	if ok {
+		t.Fatal("expected no version for missing key within existing session")
+	}
+}
+
+func TestGetEntryVersion_OnceTier(t *testing.T) {
+	c := NewPolicyDecisionCache(DefaultCacheConfig())
+	defer c.Stop()
+
+	key := CacheKey{Tool: "curl", Action: "execute"}
+	_, ok := c.GetEntryVersion(key, TierOnce)
+	if ok {
+		t.Fatal("expected no version for once tier")
+	}
+}
+
 // --- Stats/Metrics Tests ---
 
 func TestCacheStats_TracksHitsAndMisses(t *testing.T) {
