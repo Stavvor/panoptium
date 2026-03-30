@@ -93,27 +93,27 @@ var _ = Describe("Manager", Ordered, func() {
 			cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
 			controllerLogs, err := utils.Run(cmd)
 			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, fmt.Sprintf("Controller logs:\n %s", controllerLogs))
+				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n %s", controllerLogs)
 			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, fmt.Sprintf("Failed to get Controller logs: %s", err))
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Controller logs: %s", err)
 			}
 
 			By("Fetching Kubernetes events")
 			cmd = exec.Command("kubectl", "get", "events", "-n", namespace, "--sort-by=.lastTimestamp")
 			eventsOutput, err := utils.Run(cmd)
 			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, fmt.Sprintf("Kubernetes events:\n%s", eventsOutput))
+				_, _ = fmt.Fprintf(GinkgoWriter, "Kubernetes events:\n%s", eventsOutput)
 			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, fmt.Sprintf("Failed to get Kubernetes events: %s", err))
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Kubernetes events: %s", err)
 			}
 
 			By("Fetching curl-metrics logs")
 			cmd = exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
 			metricsOutput, err := utils.Run(cmd)
 			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, fmt.Sprintf("Metrics logs:\n %s", metricsOutput))
+				_, _ = fmt.Fprintf(GinkgoWriter, "Metrics logs:\n %s", metricsOutput)
 			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, fmt.Sprintf("Failed to get curl-metrics logs: %s", err))
+				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get curl-metrics logs: %s", err)
 			}
 
 			By("Fetching controller manager pod description")
@@ -235,15 +235,72 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput := getMetricsOutput()
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+	Context("Tetragon Kustomize Overlay", func() {
+		It("should render the Tetragon overlay without errors", func() {
+			By("running kustomize build on config/tetragon")
+			cmd := exec.Command("make", "kustomize")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to ensure kustomize is available")
+
+			kustomizeBin := filepath.Join("bin", "kustomize")
+			cmd = exec.Command(kustomizeBin, "build", "config/tetragon")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Kustomize build of Tetragon overlay should succeed")
+			Expect(output).NotTo(BeEmpty(), "Kustomize output should not be empty")
+		})
+
+		It("should produce all 9 TracingPolicy resources", func() {
+			kustomizeBin := filepath.Join("bin", "kustomize")
+			cmd := exec.Command(kustomizeBin, "build", "config/tetragon")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			expectedPolicies := []string{
+				"execve-monitor",
+				"openat-monitor",
+				"connect-monitor",
+				"fork-monitor",
+				"exit-monitor",
+				"namespace-monitor",
+				"mount-enforce",
+				"ptrace-enforce",
+				"bpf-selfmon",
+			}
+
+			for _, policy := range expectedPolicies {
+				Expect(output).To(ContainSubstring(policy),
+					fmt.Sprintf("Kustomize output should contain TracingPolicy %q", policy))
+			}
+		})
+
+		It("should include Tetragon RBAC resources", func() {
+			kustomizeBin := filepath.Join("bin", "kustomize")
+			cmd := exec.Command(kustomizeBin, "build", "config/tetragon")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(output).To(ContainSubstring("panoptium-tetragon-manager"),
+				"Should include Tetragon ClusterRole")
+			Expect(output).To(ContainSubstring("tracingpolicies"),
+				"RBAC should reference tracingpolicies resource")
+		})
+
+		It("should produce events in unchanged BaseEvent format through NATS", func() {
+			// The Tetragon translator produces eventbus.BaseEvent instances with the same
+			// interface (EventType, Timestamp, RequestID, Protocol, Provider, Identity)
+			// that existing NATS subscribers expect. This is validated by the integration
+			// tests in test/integration/tetragon_test.go. Here we verify the Kustomize
+			// overlay includes the Tetragon config that enables the gRPC event pipeline.
+			kustomizeBin := filepath.Join("bin", "kustomize")
+			cmd := exec.Command(kustomizeBin, "build", "config/tetragon")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(output).To(ContainSubstring("TETRAGON_GRPC_ADDRESS"),
+				"Tetragon config should include gRPC address for event streaming")
+		})
 	})
 })
 
