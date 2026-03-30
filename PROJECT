@@ -7,4 +7,45 @@ layout:
 - go.kubebuilder.io/v4
 projectName: panoptium
 repo: github.com/panoptium/panoptium
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: panoptium.io
+  group: panoptium.io
+  kind: PanoptiumPolicy
+  path: github.com/panoptium/panoptium/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: false
+  domain: panoptium.io
+  group: panoptium.io
+  kind: ClusterPanoptiumPolicy
+  path: github.com/panoptium/panoptium/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: panoptium.io
+  group: panoptium.io
+  kind: PanoptiumAgentProfile
+  path: github.com/panoptium/panoptium/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: panoptium.io
+  group: panoptium.io
+  kind: PanoptiumThreatSignature
+  path: github.com/panoptium/panoptium/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: panoptium.io
+  group: panoptium.io
+  kind: PanoptiumQuarantine
+  path: github.com/panoptium/panoptium/api/v1alpha1
+  version: v1alpha1
 version: "3"

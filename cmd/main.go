@@ -36,6 +36,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 	natsbus "github.com/panoptium/panoptium/pkg/eventbus/nats"
 	"github.com/panoptium/panoptium/pkg/extproc"
 	"github.com/panoptium/panoptium/pkg/identity"
@@ -51,6 +52,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(panoptiumiov1alpha1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }
