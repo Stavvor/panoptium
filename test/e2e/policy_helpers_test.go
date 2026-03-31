@@ -164,11 +164,18 @@ func waitForQuarantineContained(name, ns string, timeout time.Duration) {
 // sendToolCallRequest sends a POST request through AgentGateway that simulates
 // a tool_call event. It uses a curl pod in the test namespace to reach the
 // gateway ClusterIP. Returns the HTTP status code and response body.
+//
+// Tool name identification is derived from the request body (tools[].function.name),
+// not from HTTP headers. The x-panoptium-tool-name header is NOT sent because
+// policy decisions must use trusted body-parsed data only (NFR-3: Security).
 func sendToolCallRequest(gwIP, agentID, toolName string, extraHeaders map[string]string) (statusCode int, body string, err error) {
-	podName := fmt.Sprintf("toolcall-%s-%d", toolName, time.Now().UnixNano()%100000)
+	// Replace underscores with hyphens to comply with RFC 1123 pod naming
+	safeName := strings.ReplaceAll(toolName, "_", "-")
+	podName := fmt.Sprintf("toolcall-%s-%d", safeName, time.Now().UnixNano()%100000)
 
-	// Build the request payload simulating a tool_call
-	payload := fmt.Sprintf(`{"model":"gpt-4","messages":[{"role":"user","content":"call tool"}],"tools":[{"type":"function","function":{"name":"%s","arguments":"{}"}}],"stream":false}`, toolName)
+	// Build the request payload simulating a tool_call with the tool name in the body.
+	// The ExtProc server parses tools[].function.name from the JSON body for policy evaluation.
+	payload := fmt.Sprintf(`{"model":"gpt-4","messages":[{"role":"user","content":"call tool"}],"tools":[{"type":"function","function":{"name":"%s","parameters":{}}}],"stream":false}`, toolName)
 
 	args := []string{
 		"run", podName,
@@ -183,7 +190,6 @@ func sendToolCallRequest(gwIP, agentID, toolName string, extraHeaders map[string
 		fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
 		"-H", "Content-Type: application/json",
 		"-H", fmt.Sprintf("x-panoptium-agent-id: %s", agentID),
-		"-H", fmt.Sprintf("x-panoptium-tool-name: %s", toolName),
 	}
 
 	// Add extra headers
@@ -199,7 +205,9 @@ func sendToolCallRequest(gwIP, agentID, toolName string, extraHeaders map[string
 	// Parse the status code from the output
 	parts := strings.Split(output, "---HTTP_STATUS_CODE:")
 	if len(parts) >= 2 {
-		codeStr := strings.TrimSuffix(parts[1], "---")
+		// Extract status code before the closing "---" delimiter.
+		// kubectl --rm appends "pod ... deleted" after the marker, so TrimSuffix won't work.
+		codeStr := strings.SplitN(parts[1], "---", 2)[0]
 		codeStr = strings.TrimSpace(codeStr)
 		code, parseErr := strconv.Atoi(codeStr)
 		if parseErr == nil {

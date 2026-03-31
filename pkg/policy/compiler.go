@@ -307,19 +307,19 @@ func (c *PolicyCompiler) compilePredicate(policyName, ruleName string, ruleIndex
 		}
 	}
 
-	// Parse simple equality: event.field == "value"
+	// Parse simple equality: event.field == "value" or event.field == 'value'
 	if parts := strings.SplitN(cel, " == ", 2); len(parts) == 2 {
 		cp.FieldPath = strings.TrimSpace(parts[0])
 		cp.Operator = "=="
-		cp.Value = strings.Trim(strings.TrimSpace(parts[1]), "\"")
+		cp.Value = strings.Trim(strings.TrimSpace(parts[1]), "\"'")
 		return cp, nil
 	}
 
-	// Parse simple inequality: event.field != "value"
+	// Parse simple inequality: event.field != "value" or event.field != 'value'
 	if parts := strings.SplitN(cel, " != ", 2); len(parts) == 2 {
 		cp.FieldPath = strings.TrimSpace(parts[0])
 		cp.Operator = "!="
-		cp.Value = strings.Trim(strings.TrimSpace(parts[1]), "\"")
+		cp.Value = strings.Trim(strings.TrimSpace(parts[1]), "\"'")
 		return cp, nil
 	}
 
