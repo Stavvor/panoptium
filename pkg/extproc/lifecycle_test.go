@@ -35,6 +35,7 @@ import (
 	"github.com/panoptium/panoptium/pkg/identity"
 	"github.com/panoptium/panoptium/pkg/observer"
 	"github.com/panoptium/panoptium/pkg/observer/llm"
+	"github.com/panoptium/panoptium/pkg/policy"
 )
 
 // TestLifecycleManagerStartAndServe verifies that the lifecycle manager starts
@@ -710,6 +711,209 @@ func TestLifecycleManagerConcurrentStreams(t *testing.T) {
 	}
 	for _, conn := range conns {
 		conn.Close()
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("lifecycle manager returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("lifecycle manager did not stop in time")
+	}
+}
+
+// TestLifecycleManagerEnforcementMode verifies that the enforcement mode
+// from LifecycleConfig is propagated to the ExtProcServer.
+func TestLifecycleManagerEnforcementMode(t *testing.T) {
+	bus := eventbus.NewSimpleBus()
+	defer bus.Close()
+
+	registry := observer.NewObserverRegistry()
+	podCache := identity.NewPodCache()
+	resolver := identity.NewResolver(podCache)
+
+	cfg := LifecycleConfig{
+		Port:            0,
+		Enabled:         true,
+		EnforcementMode: "enforcing",
+	}
+
+	mgr := NewLifecycleManager(cfg, registry, resolver, bus)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- mgr.Start(ctx)
+	}()
+
+	if !mgr.WaitForReady(5 * time.Second) {
+		t.Fatal("lifecycle manager did not become ready in time")
+	}
+
+	// The server should be in enforcing mode now
+	// We verify by sending a request from an un-enrolled pod - it should get 403
+	conn, err := grpc.NewClient(
+		mgr.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	client := extprocv3.NewExternalProcessorClient(conn)
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request from an un-enrolled IP (not in PodCache)
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-forwarded-for", "10.0.0.99",
+					"x-panoptium-request-id", "req-enforce-test",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request: %v", err)
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// In enforcing mode, un-enrolled pods should get 403
+	ir := resp.GetImmediateResponse()
+	if ir == nil {
+		t.Fatal("expected ImmediateResponse for un-enrolled pod in enforcing mode")
+	}
+	if ir.Status.Code != 403 {
+		t.Errorf("expected status 403, got %d", ir.Status.Code)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("lifecycle manager returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("lifecycle manager did not stop in time")
+	}
+}
+
+// TestLifecycleManagerPolicyEvaluator verifies that the PolicyEvaluator set
+// on the LifecycleManager is injected into the ExtProcServer.
+func TestLifecycleManagerPolicyEvaluator(t *testing.T) {
+	bus := eventbus.NewSimpleBus()
+	defer bus.Close()
+
+	registry := observer.NewObserverRegistry()
+	llmObs := llm.NewLLMObserver(bus)
+	if err := registry.Register(llmObs, observer.ObserverConfig{
+		Name:      "llm",
+		Priority:  100,
+		Protocol:  eventbus.ProtocolLLM,
+		Providers: []string{eventbus.ProviderOpenAI},
+	}); err != nil {
+		t.Fatalf("failed to register: %v", err)
+	}
+
+	podCache := identity.NewPodCache()
+	podCache.Set("10.0.0.42", identity.PodInfo{
+		Name: "eval-pod", Namespace: "default", UID: "uid-42",
+		Labels: map[string]string{"panoptium.io/monitored": "true"},
+	})
+	resolver := identity.NewResolver(podCache)
+
+	evaluator := &mockPolicyEvaluator{
+		decision: &policy.Decision{
+			Action:           policy.CompiledAction{Type: "deny", Parameters: map[string]string{"message": "blocked by lifecycle test"}},
+			Matched:          true,
+			MatchedRule:      "test-rule",
+			MatchedRuleIndex: 0,
+			PolicyName:       "test-policy",
+			PolicyNamespace:  "default",
+		},
+	}
+
+	cfg := LifecycleConfig{
+		Port:            0,
+		Enabled:         true,
+		EnforcementMode: "enforcing",
+	}
+
+	mgr := NewLifecycleManager(cfg, registry, resolver, bus)
+	mgr.SetPolicyEvaluator(evaluator)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- mgr.Start(ctx)
+	}()
+
+	if !mgr.WaitForReady(5 * time.Second) {
+		t.Fatal("lifecycle manager did not become ready in time")
+	}
+
+	conn, err := grpc.NewClient(
+		mgr.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	client := extprocv3.NewExternalProcessorClient(conn)
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"x-forwarded-for", "10.0.0.42",
+					"x-panoptium-request-id", "req-eval-lifecycle",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send: %v", err)
+	}
+
+	resp, err := stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to recv: %v", err)
+	}
+
+	// The mock evaluator returns a deny, so we should get 403
+	ir := resp.GetImmediateResponse()
+	if ir == nil {
+		t.Fatal("expected ImmediateResponse from policy evaluator deny")
+	}
+	if ir.Status.Code != 403 {
+		t.Errorf("expected 403, got %d", ir.Status.Code)
 	}
 
 	cancel()

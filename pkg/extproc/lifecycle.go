@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/panoptium/panoptium/pkg/eventbus"
+	"github.com/panoptium/panoptium/pkg/extproc/enforce"
 	"github.com/panoptium/panoptium/pkg/identity"
 	"github.com/panoptium/panoptium/pkg/observer"
 )
@@ -53,6 +54,12 @@ type LifecycleConfig struct {
 	// ShutdownTimeout is the maximum time to wait for graceful shutdown.
 	// If zero, defaults to 30 seconds.
 	ShutdownTimeout time.Duration
+
+	// EnforcementMode controls the enforcement behavior ("enforcing" or "audit").
+	// In "enforcing" mode, policy decisions are actively enforced.
+	// In "audit" mode, decisions are logged but traffic passes through.
+	// Defaults to "audit" if empty.
+	EnforcementMode string
 }
 
 // DefaultLifecycleConfig returns a LifecycleConfig with sensible defaults.
@@ -73,7 +80,8 @@ type LifecycleManager struct {
 	resolver *identity.Resolver
 	bus      eventbus.EventBus
 
-	informer *identity.PodCacheInformer
+	informer        *identity.PodCacheInformer
+	policyEvaluator PolicyEvaluator
 
 	mu         sync.Mutex
 	started    bool
@@ -104,6 +112,13 @@ func NewLifecycleManager(
 // and keeps the pod IP cache in sync.
 func (m *LifecycleManager) SetPodCacheInformer(informer *identity.PodCacheInformer) {
 	m.informer = informer
+}
+
+// SetPolicyEvaluator configures the policy evaluator that will be injected
+// into the ExtProcServer at startup. When set, every request is evaluated
+// against the active policy set before being passed through.
+func (m *LifecycleManager) SetPolicyEvaluator(evaluator PolicyEvaluator) {
+	m.policyEvaluator = evaluator
 }
 
 // Start begins serving the ExtProc gRPC server and blocks until the
@@ -154,6 +169,19 @@ func (m *LifecycleManager) Start(ctx context.Context) error {
 
 	// Register the ExtProc service
 	extProcSrv := NewExtProcServer(m.registry, m.resolver, m.bus)
+
+	// Apply enforcement mode from config
+	if m.cfg.EnforcementMode == string(enforce.ModeEnforcing) {
+		extProcSrv.SetEnforcementMode(enforce.ModeEnforcing)
+	} else {
+		extProcSrv.SetEnforcementMode(enforce.ModeAudit)
+	}
+
+	// Inject policy evaluator if configured
+	if m.policyEvaluator != nil {
+		extProcSrv.SetPolicyEvaluator(m.policyEvaluator)
+	}
+
 	extprocv3.RegisterExternalProcessorServer(m.grpcServer, extProcSrv)
 
 	// Register gRPC reflection for debugging

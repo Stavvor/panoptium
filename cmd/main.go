@@ -37,11 +37,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
+	"github.com/panoptium/panoptium/internal/controller"
+	panoptiumwebhook "github.com/panoptium/panoptium/internal/webhook"
 	natsbus "github.com/panoptium/panoptium/pkg/eventbus/nats"
 	"github.com/panoptium/panoptium/pkg/extproc"
 	"github.com/panoptium/panoptium/pkg/identity"
 	"github.com/panoptium/panoptium/pkg/observer"
 	"github.com/panoptium/panoptium/pkg/observer/llm"
+	"github.com/panoptium/panoptium/pkg/policy"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -65,6 +68,7 @@ func main() {
 	var enableHTTP2 bool
 	var extprocPort int
 	var extprocEnabled bool
+	var enforcementMode string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -80,6 +84,8 @@ func main() {
 		"The port the ExtProc gRPC server listens on for AgentGateway connections.")
 	flag.BoolVar(&extprocEnabled, "extproc-enabled", true,
 		"Enable the ExtProc gRPC server for LLM traffic observation.")
+	flag.StringVar(&enforcementMode, "enforcement-mode", "enforcing",
+		"Policy enforcement mode: 'enforcing' (deny/throttle active) or 'audit' (log only).")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -153,11 +159,79 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set up the policy engine: compiler, cache, resolver, evaluator adapter
+	policyCompiler := policy.NewPolicyCompiler()
+	policyCache := policy.NewPolicyCache(policyCompiler)
+	policyResolver := policy.NewPolicyCompositionResolver()
+	policyEvaluator := policy.NewEvaluatorAdapter(policyCache, policyResolver)
+	setupLog.Info("policy engine initialized",
+		"enforcementMode", enforcementMode)
+
+	// Set up controllers
+	if err := (&controller.PanoptiumPolicyReconciler{
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Recorder:    mgr.GetEventRecorderFor("panoptiumpolicy-controller"),
+		PolicyCache: policyCache,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PanoptiumPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.ClusterPanoptiumPolicyReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("clusterpanoptiumpolicy-controller"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterPanoptiumPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&controller.PanoptiumAgentProfileReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("panoptiumagentprofile-controller"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PanoptiumAgentProfile")
+		os.Exit(1)
+	}
+
+	if err := (&controller.PanoptiumThreatSignatureReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("panoptiumthreatsignature-controller"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PanoptiumThreatSignature")
+		os.Exit(1)
+	}
+
+	if err := (&controller.PanoptiumQuarantineReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("panoptiumquarantine-controller"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PanoptiumQuarantine")
+		os.Exit(1)
+	}
+
+	// Set up webhooks
+	if err := (&panoptiumwebhook.PanoptiumPolicyValidator{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "PanoptiumPolicy")
+		os.Exit(1)
+	}
+
+	if err := (&panoptiumwebhook.PodMutator{
+		Client: mgr.GetClient(),
+	}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "PodMutator")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 
 	// Set up the embedded NATS server for the event bus
 	natsSrv, err := natsbus.NewServer(natsbus.ServerConfig{
-		StoreDir: "/var/lib/panoptium/nats",
+		StoreDir: "", // empty uses os.MkdirTemp; /var/lib is not writable in distroless
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create embedded NATS server")
@@ -204,11 +278,13 @@ func main() {
 
 	// Configure and add the ExtProc lifecycle manager as a Runnable
 	extprocCfg := extproc.LifecycleConfig{
-		Port:    extprocPort,
-		Enabled: extprocEnabled,
+		Port:            extprocPort,
+		Enabled:         extprocEnabled,
+		EnforcementMode: enforcementMode,
 	}
 	extprocMgr := extproc.NewLifecycleManager(extprocCfg, registry, resolver, bus)
 	extprocMgr.SetPodCacheInformer(podCacheInformer)
+	extprocMgr.SetPolicyEvaluator(policyEvaluator)
 
 	if err := mgr.Add(extprocMgr); err != nil {
 		setupLog.Error(err, "unable to add ExtProc lifecycle manager")
