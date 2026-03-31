@@ -33,6 +33,13 @@ type ChatCompletionRequest struct {
 
 	// Stream indicates whether streaming is enabled.
 	Stream bool
+
+	// ToolNames contains the function names extracted from the tools array.
+	// Each entry corresponds to tools[i].function.name in the request.
+	ToolNames []string
+
+	// ToolChoice is the tool_choice value from the request (e.g., "auto", "none").
+	ToolChoice string
 }
 
 // Message represents a single message in a chat completion request.
@@ -80,11 +87,21 @@ type ChatCompletionResponse struct {
 	OutputTokens int
 }
 
+// rawTool is the internal JSON structure for a single tool in the request.
+type rawTool struct {
+	Type     string `json:"type"`
+	Function struct {
+		Name string `json:"name"`
+	} `json:"function"`
+}
+
 // rawRequest is the internal JSON structure for request deserialization.
 type rawRequest struct {
-	Model    string       `json:"model"`
-	Messages []rawMessage `json:"messages"`
-	Stream   bool         `json:"stream"`
+	Model      string       `json:"model"`
+	Messages   []rawMessage `json:"messages"`
+	Stream     bool         `json:"stream"`
+	Tools      []rawTool    `json:"tools"`
+	ToolChoice interface{}  `json:"tool_choice"`
 }
 
 // rawMessage is the internal JSON structure for message deserialization.
@@ -135,10 +152,29 @@ func ParseRequest(body []byte) (*ChatCompletionRequest, error) {
 		}
 	}
 
+	// Extract tool names from tools array
+	var toolNames []string
+	for _, tool := range raw.Tools {
+		if tool.Function.Name != "" {
+			toolNames = append(toolNames, tool.Function.Name)
+		}
+	}
+
+	// Extract tool_choice value
+	var toolChoice string
+	if raw.ToolChoice != nil {
+		switch v := raw.ToolChoice.(type) {
+		case string:
+			toolChoice = v
+		}
+	}
+
 	return &ChatCompletionRequest{
-		Model:    raw.Model,
-		Messages: messages,
-		Stream:   raw.Stream,
+		Model:      raw.Model,
+		Messages:   messages,
+		Stream:     raw.Stream,
+		ToolNames:  toolNames,
+		ToolChoice: toolChoice,
 	}, nil
 }
 

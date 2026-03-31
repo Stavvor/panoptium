@@ -293,3 +293,147 @@ func TestParseNonStreamingResponse(t *testing.T) {
 		t.Errorf("OutputTokens = %d, want 8", resp.OutputTokens)
 	}
 }
+
+// --- Tool Extraction Tests ---
+
+// TestParseRequest_ToolExtraction_SingleTool verifies extracting tools[].function.name
+// from an OpenAI chat completions request with a single tool.
+func TestParseRequest_ToolExtraction_SingleTool(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-4",
+		"messages": [{"role": "user", "content": "What is the weather?"}],
+		"tools": [
+			{
+				"type": "function",
+				"function": {
+					"name": "get_weather",
+					"description": "Get the weather",
+					"parameters": {"type": "object", "properties": {"location": {"type": "string"}}}
+				}
+			}
+		],
+		"stream": true
+	}`)
+
+	req, err := ParseRequest(body)
+	if err != nil {
+		t.Fatalf("ParseRequest() error = %v", err)
+	}
+	if len(req.ToolNames) != 1 {
+		t.Fatalf("ToolNames count = %d, want 1", len(req.ToolNames))
+	}
+	if req.ToolNames[0] != "get_weather" {
+		t.Errorf("ToolNames[0] = %q, want %q", req.ToolNames[0], "get_weather")
+	}
+}
+
+// TestParseRequest_ToolExtraction_MultipleTools verifies extracting multiple tool names.
+func TestParseRequest_ToolExtraction_MultipleTools(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-4",
+		"messages": [{"role": "user", "content": "Do something"}],
+		"tools": [
+			{"type": "function", "function": {"name": "get_weather"}},
+			{"type": "function", "function": {"name": "dangerous_exec"}},
+			{"type": "function", "function": {"name": "send_email"}}
+		],
+		"stream": true
+	}`)
+
+	req, err := ParseRequest(body)
+	if err != nil {
+		t.Fatalf("ParseRequest() error = %v", err)
+	}
+	if len(req.ToolNames) != 3 {
+		t.Fatalf("ToolNames count = %d, want 3", len(req.ToolNames))
+	}
+	expected := []string{"get_weather", "dangerous_exec", "send_email"}
+	for i, name := range expected {
+		if req.ToolNames[i] != name {
+			t.Errorf("ToolNames[%d] = %q, want %q", i, req.ToolNames[i], name)
+		}
+	}
+}
+
+// TestParseRequest_ToolExtraction_NoTools verifies that a request without tools returns empty list.
+func TestParseRequest_ToolExtraction_NoTools(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-4",
+		"messages": [{"role": "user", "content": "Hello"}],
+		"stream": true
+	}`)
+
+	req, err := ParseRequest(body)
+	if err != nil {
+		t.Fatalf("ParseRequest() error = %v", err)
+	}
+	if len(req.ToolNames) != 0 {
+		t.Errorf("ToolNames count = %d, want 0", len(req.ToolNames))
+	}
+}
+
+// TestParseRequest_ToolExtraction_EmptyToolsArray verifies empty tools array yields empty list.
+func TestParseRequest_ToolExtraction_EmptyToolsArray(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-4",
+		"messages": [{"role": "user", "content": "Hello"}],
+		"tools": [],
+		"stream": true
+	}`)
+
+	req, err := ParseRequest(body)
+	if err != nil {
+		t.Fatalf("ParseRequest() error = %v", err)
+	}
+	if len(req.ToolNames) != 0 {
+		t.Errorf("ToolNames count = %d, want 0", len(req.ToolNames))
+	}
+}
+
+// TestParseRequest_ToolExtraction_ToolChoice verifies extracting tool_choice field.
+func TestParseRequest_ToolExtraction_ToolChoice(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-4",
+		"messages": [{"role": "user", "content": "Hello"}],
+		"tools": [
+			{"type": "function", "function": {"name": "get_weather"}}
+		],
+		"tool_choice": "auto",
+		"stream": true
+	}`)
+
+	req, err := ParseRequest(body)
+	if err != nil {
+		t.Fatalf("ParseRequest() error = %v", err)
+	}
+	if req.ToolChoice != "auto" {
+		t.Errorf("ToolChoice = %q, want %q", req.ToolChoice, "auto")
+	}
+}
+
+// TestParseRequest_ToolExtraction_MissingFunctionName verifies tools with missing
+// function.name are skipped gracefully.
+func TestParseRequest_ToolExtraction_MissingFunctionName(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-4",
+		"messages": [{"role": "user", "content": "Hello"}],
+		"tools": [
+			{"type": "function", "function": {"name": "valid_tool"}},
+			{"type": "function", "function": {}},
+			{"type": "function"}
+		],
+		"stream": true
+	}`)
+
+	req, err := ParseRequest(body)
+	if err != nil {
+		t.Fatalf("ParseRequest() error = %v", err)
+	}
+	// Should only extract the one valid tool name
+	if len(req.ToolNames) != 1 {
+		t.Fatalf("ToolNames count = %d, want 1 (should skip tools without name)", len(req.ToolNames))
+	}
+	if req.ToolNames[0] != "valid_tool" {
+		t.Errorf("ToolNames[0] = %q, want %q", req.ToolNames[0], "valid_tool")
+	}
+}
