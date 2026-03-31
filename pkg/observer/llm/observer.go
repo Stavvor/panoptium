@@ -113,6 +113,7 @@ func (o *LLMObserver) ProcessRequestStream(_ context.Context, req *observer.Obse
 			streamCtx.Model = parsed.Model
 			streamCtx.Stream = parsed.Stream
 			streamCtx.RequestBody = req.Body
+			streamCtx.ToolNames = parsed.ToolNames
 		}
 	case providerAnthropic:
 		if len(req.Body) > 0 {
@@ -123,6 +124,7 @@ func (o *LLMObserver) ProcessRequestStream(_ context.Context, req *observer.Obse
 			streamCtx.Model = parsed.Model
 			streamCtx.Stream = parsed.Stream
 			streamCtx.RequestBody = req.Body
+			streamCtx.ToolNames = parsed.ToolNames
 		}
 	}
 

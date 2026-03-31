@@ -105,6 +105,11 @@ type StreamContext struct {
 
 	// RequestBody stores the raw request body for deferred parsing.
 	RequestBody []byte
+
+	// ToolNames contains tool function names extracted from the request body.
+	// Populated by the LLM observer from provider-specific parsing
+	// (OpenAI tools[].function.name, Anthropic tools[].name).
+	ToolNames []string
 }
 
 // ObserverConfig defines the configuration for registering an observer.

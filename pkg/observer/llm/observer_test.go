@@ -170,3 +170,122 @@ func TestLLMObserver_ImplementsInterface(t *testing.T) {
 
 	var _ observer.ProtocolObserver = NewLLMObserver(bus)
 }
+
+// TestLLMObserver_ProcessRequestStream_OpenAI_ToolNames verifies that tool names
+// from the OpenAI request body are propagated to the StreamContext.
+func TestLLMObserver_ProcessRequestStream_OpenAI_ToolNames(t *testing.T) {
+	bus := eventbus.NewSimpleBus()
+	defer bus.Close()
+
+	obs := NewLLMObserver(bus)
+	ctx := context.Background()
+
+	body := []byte(`{
+		"model": "gpt-4",
+		"messages": [{"role": "user", "content": "Do something"}],
+		"tools": [
+			{"type": "function", "function": {"name": "get_weather"}},
+			{"type": "function", "function": {"name": "dangerous_exec"}}
+		],
+		"stream": true
+	}`)
+
+	req := &observer.ObserverContext{
+		Path:      "/v1/chat/completions",
+		Method:    "POST",
+		RequestID: "req-tool-propagation-1",
+		Headers:   http.Header{},
+		Body:      body,
+	}
+
+	streamCtx, err := obs.ProcessRequestStream(ctx, req)
+	if err != nil {
+		t.Fatalf("ProcessRequestStream() error = %v", err)
+	}
+	if streamCtx == nil {
+		t.Fatal("ProcessRequestStream() returned nil StreamContext")
+	}
+	if len(streamCtx.ToolNames) != 2 {
+		t.Fatalf("StreamContext.ToolNames count = %d, want 2", len(streamCtx.ToolNames))
+	}
+	if streamCtx.ToolNames[0] != "get_weather" {
+		t.Errorf("ToolNames[0] = %q, want %q", streamCtx.ToolNames[0], "get_weather")
+	}
+	if streamCtx.ToolNames[1] != "dangerous_exec" {
+		t.Errorf("ToolNames[1] = %q, want %q", streamCtx.ToolNames[1], "dangerous_exec")
+	}
+}
+
+// TestLLMObserver_ProcessRequestStream_Anthropic_ToolNames verifies that tool names
+// from the Anthropic request body are propagated to the StreamContext.
+func TestLLMObserver_ProcessRequestStream_Anthropic_ToolNames(t *testing.T) {
+	bus := eventbus.NewSimpleBus()
+	defer bus.Close()
+
+	obs := NewLLMObserver(bus)
+	ctx := context.Background()
+
+	body := []byte(`{
+		"model": "claude-3-opus-20240229",
+		"messages": [{"role": "user", "content": "Do something"}],
+		"tools": [
+			{"name": "read_file", "description": "reads a file"}
+		],
+		"max_tokens": 1024,
+		"stream": true
+	}`)
+
+	req := &observer.ObserverContext{
+		Path:      "/v1/messages",
+		Method:    "POST",
+		RequestID: "req-tool-propagation-2",
+		Headers:   http.Header{},
+		Body:      body,
+	}
+
+	streamCtx, err := obs.ProcessRequestStream(ctx, req)
+	if err != nil {
+		t.Fatalf("ProcessRequestStream() error = %v", err)
+	}
+	if streamCtx == nil {
+		t.Fatal("ProcessRequestStream() returned nil StreamContext")
+	}
+	if len(streamCtx.ToolNames) != 1 {
+		t.Fatalf("StreamContext.ToolNames count = %d, want 1", len(streamCtx.ToolNames))
+	}
+	if streamCtx.ToolNames[0] != "read_file" {
+		t.Errorf("ToolNames[0] = %q, want %q", streamCtx.ToolNames[0], "read_file")
+	}
+}
+
+// TestLLMObserver_ProcessRequestStream_NoTools verifies that StreamContext.ToolNames
+// is empty when no tools are present in the request body.
+func TestLLMObserver_ProcessRequestStream_NoTools(t *testing.T) {
+	bus := eventbus.NewSimpleBus()
+	defer bus.Close()
+
+	obs := NewLLMObserver(bus)
+	ctx := context.Background()
+
+	body := []byte(`{
+		"model": "gpt-4",
+		"messages": [{"role": "user", "content": "Hello"}],
+		"stream": true
+	}`)
+
+	req := &observer.ObserverContext{
+		Path:      "/v1/chat/completions",
+		Method:    "POST",
+		RequestID: "req-no-tools",
+		Headers:   http.Header{},
+		Body:      body,
+	}
+
+	streamCtx, err := obs.ProcessRequestStream(ctx, req)
+	if err != nil {
+		t.Fatalf("ProcessRequestStream() error = %v", err)
+	}
+	if len(streamCtx.ToolNames) != 0 {
+		t.Errorf("StreamContext.ToolNames count = %d, want 0", len(streamCtx.ToolNames))
+	}
+}
