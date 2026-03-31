@@ -30,15 +30,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
+	"github.com/panoptium/panoptium/pkg/policy"
 )
 
 // PanoptiumPolicyReconciler reconciles a PanoptiumPolicy object.
 // It manages status conditions (Ready, Degraded, Error), tracks observedGeneration,
 // counts compiled rules, and emits Kubernetes events for state transitions.
+// When PolicyCache is set, the reconciler compiles policies into the shared cache
+// on every Add/Update/Delete, keeping the ExtProc enforcement pipeline in sync.
 type PanoptiumPolicyReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Scheme      *runtime.Scheme
+	Recorder    record.EventRecorder
+	PolicyCache *policy.PolicyCache
 }
 
 // +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -52,88 +56,122 @@ func (r *PanoptiumPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger := log.FromContext(ctx)
 
 	// Fetch the PanoptiumPolicy instance
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{}
-	if err := r.Get(ctx, req.NamespacedName, policy); err != nil {
-		// Resource not found (deleted) — no requeue needed
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	pol := &panoptiumiov1alpha1.PanoptiumPolicy{}
+	if err := r.Get(ctx, req.NamespacedName, pol); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// Resource was deleted — remove from PolicyCache
+			if r.PolicyCache != nil {
+				deletedPol := &panoptiumiov1alpha1.PanoptiumPolicy{}
+				deletedPol.Name = req.Name
+				deletedPol.Namespace = req.Namespace
+				if cacheErr := r.PolicyCache.OnDelete(deletedPol); cacheErr != nil {
+					logger.Error(cacheErr, "failed to remove policy from cache on delete")
+				} else {
+					logger.Info("removed policy from cache", "name", req.Name, "namespace", req.Namespace)
+				}
+			}
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
 	}
 
-	logger.Info("Reconciling PanoptiumPolicy", "name", policy.Name, "namespace", policy.Namespace)
+	logger.Info("Reconciling PanoptiumPolicy", "name", pol.Name, "namespace", pol.Namespace)
 
 	// Validate and reconcile
 	degraded := false
 	var degradedMsg string
 
 	// Check for empty targetSelector (no matchLabels and no matchExpressions)
-	if len(policy.Spec.TargetSelector.MatchLabels) == 0 &&
-		len(policy.Spec.TargetSelector.MatchExpressions) == 0 {
+	if len(pol.Spec.TargetSelector.MatchLabels) == 0 &&
+		len(pol.Spec.TargetSelector.MatchExpressions) == 0 {
 		degraded = true
 		degradedMsg = "targetSelector is empty; policy matches all pods which may be unintended"
-		logger.Info("Policy has empty targetSelector", "name", policy.Name)
+		logger.Info("Policy has empty targetSelector", "name", pol.Name)
+	}
+
+	// Update the PolicyCache with the latest policy spec
+	if r.PolicyCache != nil {
+		// OnAdd handles both new policies and updates (it replaces existing entries)
+		if cacheErr := r.PolicyCache.OnAdd(pol); cacheErr != nil {
+			logger.Error(cacheErr, "failed to compile policy into cache",
+				"name", pol.Name, "namespace", pol.Namespace)
+			// Set Error condition but continue — the status update still matters
+			meta.SetStatusCondition(&pol.Status.Conditions, metav1.Condition{
+				Type:               "Error",
+				Status:             metav1.ConditionTrue,
+				ObservedGeneration: pol.Generation,
+				Reason:             "CompilationFailed",
+				Message:            fmt.Sprintf("Failed to compile policy: %v", cacheErr),
+			})
+		} else {
+			logger.Info("compiled policy into cache",
+				"name", pol.Name, "namespace", pol.Namespace)
+			meta.RemoveStatusCondition(&pol.Status.Conditions, "Error")
+		}
 	}
 
 	// Update status
-	policy.Status.ObservedGeneration = policy.Generation
-	policy.Status.RuleCount = int32(len(policy.Spec.Rules))
+	pol.Status.ObservedGeneration = pol.Generation
+	pol.Status.RuleCount = int32(len(pol.Spec.Rules))
 
 	// Set Ready condition
 	if degraded {
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		meta.SetStatusCondition(&pol.Status.Conditions, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionTrue,
-			ObservedGeneration: policy.Generation,
+			ObservedGeneration: pol.Generation,
 			Reason:             "Reconciled",
 			Message:            "Policy reconciled with warnings",
 		})
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		meta.SetStatusCondition(&pol.Status.Conditions, metav1.Condition{
 			Type:               "Degraded",
 			Status:             metav1.ConditionTrue,
-			ObservedGeneration: policy.Generation,
+			ObservedGeneration: pol.Generation,
 			Reason:             "EmptyTargetSelector",
 			Message:            degradedMsg,
 		})
-		r.Recorder.Event(policy, "Warning", "EmptyTargetSelector", degradedMsg)
+		r.Recorder.Event(pol, "Warning", "EmptyTargetSelector", degradedMsg)
 	} else {
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		meta.SetStatusCondition(&pol.Status.Conditions, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionTrue,
-			ObservedGeneration: policy.Generation,
+			ObservedGeneration: pol.Generation,
 			Reason:             "Reconciled",
-			Message:            fmt.Sprintf("Policy reconciled with %d rules", len(policy.Spec.Rules)),
+			Message:            fmt.Sprintf("Policy reconciled with %d rules", len(pol.Spec.Rules)),
 		})
 		// Remove Degraded condition if it was previously set
-		meta.RemoveStatusCondition(&policy.Status.Conditions, "Degraded")
+		meta.RemoveStatusCondition(&pol.Status.Conditions, "Degraded")
 	}
 
 	// Set Enforcing condition based on enforcement mode
-	if policy.Spec.EnforcementMode == panoptiumiov1alpha1.EnforcementModeEnforcing {
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+	if pol.Spec.EnforcementMode == panoptiumiov1alpha1.EnforcementModeEnforcing {
+		meta.SetStatusCondition(&pol.Status.Conditions, metav1.Condition{
 			Type:               "Enforcing",
 			Status:             metav1.ConditionTrue,
-			ObservedGeneration: policy.Generation,
+			ObservedGeneration: pol.Generation,
 			Reason:             "EnforcementEnabled",
 			Message:            "Policy is actively enforcing rules",
 		})
 	} else {
-		meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		meta.SetStatusCondition(&pol.Status.Conditions, metav1.Condition{
 			Type:               "Enforcing",
 			Status:             metav1.ConditionFalse,
-			ObservedGeneration: policy.Generation,
+			ObservedGeneration: pol.Generation,
 			Reason:             "EnforcementDisabled",
-			Message:            fmt.Sprintf("Policy enforcement mode is %s", policy.Spec.EnforcementMode),
+			Message:            fmt.Sprintf("Policy enforcement mode is %s", pol.Spec.EnforcementMode),
 		})
 	}
 
 	// Update status subresource
-	if err := r.Status().Update(ctx, policy); err != nil {
+	if err := r.Status().Update(ctx, pol); err != nil {
 		logger.Error(err, "Failed to update PanoptiumPolicy status")
 		return ctrl.Result{}, err
 	}
 
 	logger.Info("PanoptiumPolicy reconciled successfully",
-		"name", policy.Name,
-		"ruleCount", policy.Status.RuleCount,
-		"observedGeneration", policy.Status.ObservedGeneration,
+		"name", pol.Name,
+		"ruleCount", pol.Status.RuleCount,
+		"observedGeneration", pol.Status.ObservedGeneration,
 	)
 
 	return ctrl.Result{}, nil

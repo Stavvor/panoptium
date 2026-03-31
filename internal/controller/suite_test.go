@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
+	"github.com/panoptium/panoptium/pkg/policy"
 )
 
 var (
@@ -77,11 +78,16 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	// Register the PanoptiumPolicy reconciler
+	// Create the shared PolicyCache for controller -> ExtProc enforcement wiring
+	compiler := policy.NewPolicyCompiler()
+	testPolicyCache = policy.NewPolicyCache(compiler)
+
+	// Register the PanoptiumPolicy reconciler with PolicyCache
 	err = (&PanoptiumPolicyReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("panoptiumpolicy-controller"),
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Recorder:    mgr.GetEventRecorderFor("panoptiumpolicy-controller"),
+		PolicyCache: testPolicyCache,
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
@@ -106,6 +112,14 @@ var _ = BeforeSuite(func() {
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("panoptiumquarantine-controller"),
+	}).SetupWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
+	// Register the ClusterPanoptiumPolicy reconciler
+	err = (&ClusterPanoptiumPolicyReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor("clusterpanoptiumpolicy-controller"),
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
