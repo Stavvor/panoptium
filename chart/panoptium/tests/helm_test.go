@@ -175,6 +175,43 @@ func TestHelmTemplate_RBAC(t *testing.T) {
 	}
 }
 
+// TestHelmTemplate_MutatingWebhookFailurePolicy verifies the mutating webhook
+// uses failurePolicy=Fail to prevent unmonitored pod creation when webhook is unavailable.
+func TestHelmTemplate_MutatingWebhookFailurePolicy(t *testing.T) {
+	output := helmTemplate(t, "--set", "webhook.enabled=true", "--set", "webhook.certManager=true")
+
+	// The failurePolicy must be Fail (not Ignore) to prevent bypassing enrollment
+	if !strings.Contains(output, "failurePolicy: Fail") {
+		t.Error("mutating webhook failurePolicy should be Fail, not Ignore")
+	}
+	if strings.Contains(output, "failurePolicy: Ignore") {
+		t.Error("mutating webhook must not use failurePolicy: Ignore (security vulnerability)")
+	}
+}
+
+// TestHelmTemplate_MutatingWebhookOperations verifies the mutating webhook
+// intercepts both CREATE and UPDATE operations on pods.
+func TestHelmTemplate_MutatingWebhookOperations(t *testing.T) {
+	output := helmTemplate(t, "--set", "webhook.enabled=true", "--set", "webhook.certManager=true")
+
+	// Extract the MutatingWebhookConfiguration section specifically
+	mutatingIdx := strings.Index(output, "kind: MutatingWebhookConfiguration")
+	if mutatingIdx < 0 {
+		t.Fatal("MutatingWebhookConfiguration not found in template output")
+	}
+	// Find the next document separator or EOF
+	rest := output[mutatingIdx:]
+	endIdx := strings.Index(rest, "\n---\n")
+	if endIdx > 0 {
+		rest = rest[:endIdx]
+	}
+
+	// Within the MutatingWebhookConfiguration, check that pod operations include UPDATE
+	if !strings.Contains(rest, "operations: [CREATE, UPDATE]") {
+		t.Error("mutating webhook operations for pods should include both CREATE and UPDATE to prevent enrollment bypass via label removal")
+	}
+}
+
 // TestHelmTemplate_SecurityContext verifies security hardening is applied.
 func TestHelmTemplate_SecurityContext(t *testing.T) {
 	output := helmTemplate(t)
