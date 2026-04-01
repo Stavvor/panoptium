@@ -177,14 +177,9 @@ func sendToolCallRequest(gwIP, agentID, toolName string, extraHeaders map[string
 	// The ExtProc server parses tools[].function.name from the JSON body for policy evaluation.
 	payload := fmt.Sprintf(`{"model":"gpt-4","messages":[{"role":"user","content":"call tool"}],"tools":[{"type":"function","function":{"name":"%s","parameters":{}}}],"stream":false}`, toolName)
 
-	args := []string{
-		"run", podName,
-		"--restart=Never",
-		"--rm", "--attach",
-		"--namespace", namespace,
-		"--image=curlimages/curl:7.78.0",
-		"--",
-		"-s",
+	// Build curl args (no --rm, no --attach to avoid race condition)
+	curlArgs := []string{
+		"-s", "--max-time", "30",
 		"-w", "\n---HTTP_STATUS_CODE:%{http_code}---",
 		"-X", "POST",
 		fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
@@ -194,19 +189,65 @@ func sendToolCallRequest(gwIP, agentID, toolName string, extraHeaders map[string
 
 	// Add extra headers
 	for k, v := range extraHeaders {
-		args = append(args, "-H", fmt.Sprintf("%s: %s", k, v))
+		curlArgs = append(curlArgs, "-H", fmt.Sprintf("%s: %s", k, v))
 	}
 
-	args = append(args, "-d", payload)
+	curlArgs = append(curlArgs, "-d", payload)
 
-	cmd := exec.Command("kubectl", args...)
-	output, runErr := utils.Run(cmd)
+	// Step 1: Create pod (no --rm, no --attach)
+	runArgs := []string{
+		"run", podName,
+		"--restart=Never",
+		"--namespace", namespace,
+		"--image=curlimages/curl:7.78.0",
+		"--",
+	}
+	runArgs = append(runArgs, curlArgs...)
+
+	cmd := exec.Command("kubectl", runArgs...)
+	_, runErr := utils.Run(cmd)
+	if runErr != nil {
+		// Cleanup on failure
+		delCmd := exec.Command("kubectl", "delete", "pod", podName,
+			"--namespace", namespace, "--ignore-not-found=true")
+		_, _ = utils.Run(delCmd)
+		return 0, "", fmt.Errorf("kubectl run failed: %w", runErr)
+	}
+
+	// Step 2: Wait for pod to complete (Succeeded or Failed phase)
+	// Ensure cleanup happens regardless of outcome
+	defer func() {
+		delCmd := exec.Command("kubectl", "delete", "pod", podName,
+			"--namespace", namespace, "--ignore-not-found=true")
+		_, _ = utils.Run(delCmd)
+	}()
+
+	waitCmd := exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", podName),
+		"--for=jsonpath={.status.phase}=Succeeded",
+		"--namespace", namespace, "--timeout=60s")
+	_, waitErr := utils.Run(waitCmd)
+	if waitErr != nil {
+		// Pod may have Failed (e.g. 4xx response still exits 0 from curl,
+		// but check anyway). Read logs regardless.
+		phaseCmd := exec.Command("kubectl", "get", "pod", podName,
+			"--namespace", namespace, "-o", "jsonpath={.status.phase}")
+		phase, _ := utils.Run(phaseCmd)
+		if strings.TrimSpace(phase) != "Succeeded" && strings.TrimSpace(phase) != "Failed" {
+			return 0, "", fmt.Errorf("pod %s did not complete (phase=%s): %w", podName, phase, waitErr)
+		}
+	}
+
+	// Step 3: Read logs
+	logsCmd := exec.Command("kubectl", "logs", podName, "--namespace", namespace)
+	output, logsErr := utils.Run(logsCmd)
+	if logsErr != nil {
+		return 0, "", fmt.Errorf("failed to read logs from pod %s: %w", podName, logsErr)
+	}
 
 	// Parse the status code from the output
 	parts := strings.Split(output, "---HTTP_STATUS_CODE:")
 	if len(parts) >= 2 {
 		// Extract status code before the closing "---" delimiter.
-		// kubectl --rm appends "pod ... deleted" after the marker, so TrimSuffix won't work.
 		codeStr := strings.SplitN(parts[1], "---", 2)[0]
 		codeStr = strings.TrimSpace(codeStr)
 		code, parseErr := strconv.Atoi(codeStr)
@@ -218,12 +259,142 @@ func sendToolCallRequest(gwIP, agentID, toolName string, extraHeaders map[string
 		body = output
 	}
 
-	// If kubectl failed but we got a status code, that's normal for 4xx responses
-	if runErr != nil && statusCode == 0 {
-		err = runErr
+	// Strip kubectl warnings (e.g. "couldn't attach to pod") that precede the
+	// actual HTTP response body. The JSON body starts at the first '{'.
+	if idx := strings.Index(body, "{"); idx > 0 {
+		body = body[idx:]
 	}
 
-	return statusCode, body, err
+	return statusCode, body, nil
+}
+
+// ---------------------------------------------------------------------------
+// Persistent Pod Lifecycle Helpers
+// ---------------------------------------------------------------------------
+
+// persistentCurlPodName generates a unique, RFC 1123-compliant pod name for a
+// persistent curl pod. The contextName identifies the test context (e.g. "pe2",
+// "ge1") to make debugging easier.
+func persistentCurlPodName(contextName string) string {
+	safe := strings.ReplaceAll(contextName, "_", "-")
+	name := fmt.Sprintf("e2e-curl-%s-%d", safe, time.Now().UnixNano()%1000000)
+	// Truncate to 63 characters (Kubernetes pod name limit)
+	if len(name) > 63 {
+		name = name[:63]
+	}
+	// Ensure it does not end with a hyphen
+	name = strings.TrimRight(name, "-")
+	return name
+}
+
+// createPersistentCurlPod creates a long-running curl pod that stays alive via
+// "sleep 3600". It waits for the pod to reach Ready state before returning.
+// Returns the pod name. Callers should defer deletePersistentCurlPod to clean up.
+func createPersistentCurlPod(ns string) string {
+	podName := persistentCurlPodName("ctx")
+	return createPersistentCurlPodWithName(podName, ns)
+}
+
+// createPersistentCurlPodWithName creates a persistent curl pod with a specific name.
+// It waits for the pod to reach Ready state before returning.
+func createPersistentCurlPodWithName(podName, ns string) string {
+	By(fmt.Sprintf("creating persistent curl pod %s", podName))
+	cmd := exec.Command("kubectl", "run", podName,
+		"--restart=Never",
+		"--namespace", ns,
+		"--image=curlimages/curl:7.78.0",
+		"--", "sleep", "3600")
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(),
+		fmt.Sprintf("failed to create persistent curl pod %s", podName))
+
+	By(fmt.Sprintf("waiting for persistent curl pod %s to be Ready", podName))
+	waitCmd := exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", podName),
+		"--for=condition=Ready",
+		"--namespace", ns, "--timeout=120s")
+	_, err = utils.Run(waitCmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(),
+		fmt.Sprintf("persistent curl pod %s did not become Ready", podName))
+
+	return podName
+}
+
+// deletePersistentCurlPod deletes a persistent curl pod by name. Safe to call
+// on already-deleted pods.
+func deletePersistentCurlPod(podName, ns string) {
+	By(fmt.Sprintf("deleting persistent curl pod %s", podName))
+	cmd := exec.Command("kubectl", "delete", "pod", podName,
+		"--namespace", ns, "--ignore-not-found=true", "--grace-period=0")
+	_, _ = utils.Run(cmd)
+}
+
+// buildCurlExecArgs constructs the kubectl exec arguments for sending a tool
+// call request through an existing persistent curl pod. This is a pure function
+// that does not execute any commands, making it testable without a cluster.
+func buildCurlExecArgs(podName, gwIP, agentID, toolName string, extraHeaders map[string]string) []string {
+	payload := fmt.Sprintf(`{"model":"gpt-4","messages":[{"role":"user","content":"call tool"}],"tools":[{"type":"function","function":{"name":"%s","parameters":{}}}],"stream":false}`, toolName)
+
+	args := []string{
+		"exec", podName,
+		"-n", namespace,
+		"--", "curl",
+		"-s", "--max-time", "30",
+		"-w", "\n---HTTP_STATUS_CODE:%{http_code}---",
+		"-X", "POST",
+		fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
+		"-H", "Content-Type: application/json",
+		"-H", fmt.Sprintf("x-panoptium-agent-id: %s", agentID),
+	}
+
+	for k, v := range extraHeaders {
+		args = append(args, "-H", fmt.Sprintf("%s: %s", k, v))
+	}
+
+	args = append(args, "-d", payload)
+	return args
+}
+
+// parseExecResponse parses the HTTP status code and body from kubectl exec curl
+// output. The curl -w flag appends a status code marker that this function
+// extracts. This is a pure function for testability.
+func parseExecResponse(output string) (statusCode int, body string, err error) {
+	parts := strings.Split(output, "---HTTP_STATUS_CODE:")
+	if len(parts) >= 2 {
+		codeStr := strings.SplitN(parts[1], "---", 2)[0]
+		codeStr = strings.TrimSpace(codeStr)
+		code, parseErr := strconv.Atoi(codeStr)
+		if parseErr == nil {
+			statusCode = code
+		}
+		body = strings.TrimRight(parts[0], "\n")
+	} else {
+		body = output
+	}
+
+	// Strip kubectl warnings that precede the JSON body.
+	if idx := strings.Index(body, "{"); idx > 0 {
+		body = body[idx:]
+	}
+
+	return statusCode, body, nil
+}
+
+// execToolCallRequest sends a POST request through AgentGateway by executing
+// curl inside an existing persistent pod via kubectl exec. This replaces
+// sendToolCallRequest for PE and GE suites, eliminating pod scheduling overhead.
+//
+// Tool name identification is derived from the request body (tools[].function.name),
+// not from HTTP headers. The x-panoptium-tool-name header is NOT sent because
+// policy decisions must use trusted body-parsed data only (NFR-3: Security).
+func execToolCallRequest(podName, gwIP, agentID, toolName string, extraHeaders map[string]string) (statusCode int, body string, err error) {
+	args := buildCurlExecArgs(podName, gwIP, agentID, toolName, extraHeaders)
+	cmd := exec.Command("kubectl", args...)
+	output, execErr := utils.Run(cmd)
+	if execErr != nil {
+		return 0, "", fmt.Errorf("kubectl exec failed in pod %s: %w", podName, execErr)
+	}
+
+	return parseExecResponse(output)
 }
 
 // ---------------------------------------------------------------------------
