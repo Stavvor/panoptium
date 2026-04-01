@@ -777,7 +777,10 @@ func TestPredicateParsing_LessThanOperator(t *testing.T) {
 	}
 }
 
-func TestPredicateParsing_RawFallback(t *testing.T) {
+// TestPredicateParsing_InvalidCELReturnsError verifies that invalid CEL
+// expressions (which previously fell through to "raw" operator) now produce
+// a CompilationError instead of silently passing.
+func TestPredicateParsing_InvalidCELReturnsError(t *testing.T) {
 	policy := newTestPolicy("raw-parse", "default", 100, []v1alpha1.PolicyRule{
 		{
 			Name: "raw-rule",
@@ -794,16 +797,12 @@ func TestPredicateParsing_RawFallback(t *testing.T) {
 	})
 
 	compiler := NewPolicyCompiler()
-	compiled, err := compiler.Compile(policy)
-	if err != nil {
-		t.Fatalf("Compile() unexpected error: %v", err)
+	_, err := compiler.Compile(policy)
+	if err == nil {
+		t.Fatal("expected CompilationError for invalid CEL expression, got nil")
 	}
-	pred := compiled.Rules[0].Predicates[0]
-	if pred.Operator != "raw" {
-		t.Errorf("Operator = %q, want %q", pred.Operator, "raw")
-	}
-	if pred.Value != `someComplexCelExpression(event)` {
-		t.Errorf("Value = %q, want %q", pred.Value, `someComplexCelExpression(event)`)
+	if _, ok := err.(*CompilationError); !ok {
+		t.Errorf("expected *CompilationError, got %T: %v", err, err)
 	}
 }
 

@@ -96,6 +96,7 @@ func (dt *DecisionTree) Evaluate(event *PolicyEvent) (*Decision, error) {
 }
 
 // matchesTrigger checks if an event matches a rule's trigger.
+// Supports glob patterns in TriggerEvent (e.g., "tool_*", "*").
 func (dt *DecisionTree) matchesTrigger(rule *CompiledRule, event *PolicyEvent) bool {
 	if rule.TriggerLayer != event.Category {
 		return false
@@ -103,6 +104,11 @@ func (dt *DecisionTree) matchesTrigger(rule *CompiledRule, event *PolicyEvent) b
 	if rule.TriggerEvent == "" {
 		// Empty subcategory means match all events in this layer.
 		return true
+	}
+	// Use glob matching if the trigger event contains wildcard characters.
+	if strings.ContainsAny(rule.TriggerEvent, "*?") {
+		matched, _ := matchGlob(rule.TriggerEvent, event.Subcategory)
+		return matched
 	}
 	return rule.TriggerEvent == event.Subcategory
 }
@@ -125,9 +131,8 @@ func (dt *DecisionTree) evaluatePredicate(rule *CompiledRule, pred *CompiledPred
 		return dt.evalGlob(rule, pred, event)
 	case "inCIDR":
 		return dt.evalCIDR(rule, pred, event)
-	case "raw":
-		// Raw CEL expressions are passed through as-is; for now they match.
-		return true, nil
+	case "cel":
+		return dt.evalCEL(pred, event)
 	default:
 		return false, fmt.Errorf("unknown predicate operator %q", pred.Operator)
 	}
@@ -194,6 +199,14 @@ func (dt *DecisionTree) evalCIDR(rule *CompiledRule, pred *CompiledPredicate, ev
 		return false, nil
 	}
 	return ipNet.Contains(ip), nil
+}
+
+// evalCEL evaluates a compiled CEL program predicate against an event.
+func (dt *DecisionTree) evalCEL(pred *CompiledPredicate, event *PolicyEvent) (bool, error) {
+	if pred.CELProgram == nil {
+		return false, fmt.Errorf("CEL program not compiled for predicate %q", pred.RawCEL)
+	}
+	return evaluateCELProgram(pred.CELProgram, event)
 }
 
 // resolveField resolves a field path from a PolicyEvent.

@@ -240,6 +240,12 @@ func (c *PolicyCompiler) compilePredicate(policyName, ruleName string, ruleIndex
 
 	cel := pred.CEL
 
+	// Detect compound expressions (&&, ||, ternary) that need full CEL compilation.
+	// These cannot be decomposed into simple field/operator/value form.
+	if isCompoundExpression(cel) {
+		return c.compileCELPredicate(policyName, ruleName, ruleIndex, cel, cp)
+	}
+
 	// Extract and pre-compile regex patterns: event.field.matches("pattern")
 	if idx := strings.Index(cel, ".matches(\""); idx >= 0 {
 		fieldPath := cel[:idx]
@@ -339,9 +345,41 @@ func (c *PolicyCompiler) compilePredicate(policyName, ruleName string, ruleIndex
 		return cp, nil
 	}
 
-	// Fallback: store the raw CEL expression as-is.
-	cp.FieldPath = cel
-	cp.Operator = "raw"
-	cp.Value = cel
+	// Fallback: compile the expression with google/cel-go.
+	// This handles any expression not matched by the simple parsers above
+	// and validates syntax (eliminates silent "raw" pass-through).
+	return c.compileCELPredicate(policyName, ruleName, ruleIndex, cel, cp)
+}
+
+// isCompoundExpression returns true if the CEL expression contains logical
+// operators that indicate it cannot be decomposed into simple field/op/value.
+func isCompoundExpression(expr string) bool {
+	return strings.Contains(expr, " && ") || strings.Contains(expr, " || ") || strings.Contains(expr, " ? ")
+}
+
+// compileCELPredicate compiles an expression using google/cel-go and stores
+// the compiled program in the CompiledPredicate.
+func (c *PolicyCompiler) compileCELPredicate(policyName, ruleName string, ruleIndex int, expr string, cp CompiledPredicate) (CompiledPredicate, error) {
+	celEnv, err := getCELEnv()
+	if err != nil {
+		return cp, &CompilationError{
+			PolicyName: policyName,
+			RuleName:   ruleName,
+			RuleIndex:  ruleIndex,
+			Field:      "predicates.cel",
+			Message:    fmt.Sprintf("failed to initialize CEL environment: %v", err),
+			Cause:      err,
+		}
+	}
+
+	prg, err := compileCEL(celEnv, expr, policyName, ruleName, ruleIndex)
+	if err != nil {
+		return cp, err
+	}
+
+	cp.FieldPath = expr
+	cp.Operator = "cel"
+	cp.Value = expr
+	cp.CELProgram = prg
 	return cp, nil
 }

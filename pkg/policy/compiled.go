@@ -23,6 +23,7 @@ import (
 	"net"
 	"regexp"
 
+	"github.com/google/cel-go/cel"
 	v1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -97,7 +98,7 @@ type CompiledPredicate struct {
 	// FieldPath is the extracted event field path (e.g., "event.processName").
 	FieldPath string
 
-	// Operator is the comparison operator (e.g., "==", "!=", "matches", "glob", "inCIDR").
+	// Operator is the comparison operator (e.g., "==", "!=", "matches", "glob", "inCIDR", "cel").
 	Operator string
 
 	// Value is the literal comparison value.
@@ -105,6 +106,11 @@ type CompiledPredicate struct {
 
 	// Negate indicates whether the predicate result should be negated (NOT).
 	Negate bool
+
+	// CELProgram is the compiled CEL program for this predicate.
+	// Used when Operator is "cel" for complex expressions, or when the
+	// expression cannot be decomposed into simple field/operator/value form.
+	CELProgram cel.Program
 }
 
 // CompiledAction holds the action type and its parameters for a compiled rule.

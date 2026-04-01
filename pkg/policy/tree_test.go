@@ -823,13 +823,17 @@ func TestDecisionTree_CIDREvaluation(t *testing.T) {
 
 // --- Phase 4: Raw Operator and Unknown Operator Tests ---
 
-func TestDecisionTree_RawOperator(t *testing.T) {
+// TestDecisionTree_RawOperatorRemoved verifies that the "raw" operator
+// no longer exists and is treated as an unknown operator (returns error).
+// This test replaces the previous TestDecisionTree_RawOperator which
+// expected raw expressions to always match (security vulnerability).
+func TestDecisionTree_RawOperatorRemoved(t *testing.T) {
 	compiled := &CompiledPolicy{
 		Name:      "raw-op-test",
 		Namespace: "default",
 		Rules: []*CompiledRule{
 			{
-				Name:         "raw-always-matches",
+				Name:         "raw-no-longer-matches",
 				Index:        0,
 				TriggerLayer: "kernel",
 				TriggerEvent: "process_exec",
@@ -858,8 +862,10 @@ func TestDecisionTree_RawOperator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Evaluate() unexpected error: %v", err)
 	}
-	if !decision.Matched {
-		t.Error("Decision.Matched = false, want true for raw operator (always matches)")
+	// The "raw" operator is now treated as an unknown operator, so
+	// the predicate fails to match and the rule is skipped.
+	if decision.Matched {
+		t.Error("raw operator should not match anymore (security fix)")
 	}
 }
 
