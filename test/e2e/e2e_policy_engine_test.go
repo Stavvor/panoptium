@@ -789,6 +789,12 @@ spec:
 	// PE-10: Hot-Reload: Update CRD Without Operator Restart
 	// -----------------------------------------------------------------------
 	Context("PE-10: Hot-Reload", func() {
+		var curlPod string
+		BeforeAll(func() {
+			curlPod = createPersistentCurlPod(namespace)
+			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
+		})
+
 		It("should update policy in-place without operator restart", func() {
 			policyName := uniqueName("pe10-hotreload")
 
@@ -822,7 +828,7 @@ spec:
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending request and verifying it is denied (HTTP 403)")
-			statusCode, _, err := sendToolCallRequest(gwIP, "pe10-agent", "hot_reload_target", nil)
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "pe10-agent", "hot_reload_target", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(statusCode).To(Equal(403), "Initial request should be denied")
 
@@ -867,7 +873,7 @@ spec:
 
 			By("sending same request and verifying it is now allowed (HTTP 200)")
 			verifyAllowed := func(g Gomega) {
-				statusCode, _, reqErr := sendToolCallRequest(gwIP, "pe10-agent", "hot_reload_target", nil)
+				statusCode, _, reqErr := execToolCallRequest(curlPod, gwIP, "pe10-agent", "hot_reload_target", nil)
 				g.Expect(reqErr).NotTo(HaveOccurred())
 				g.Expect(statusCode).To(Equal(200),
 					"After hot-reload, request should be allowed")
@@ -886,6 +892,23 @@ spec:
 	// PE-11: Concurrent Multi-Agent: 10 Requests, 5 Agents, Race-Free
 	// -----------------------------------------------------------------------
 	Context("PE-11: Concurrency", func() {
+		const numAgents = 5
+		const requestsPerAgent = 2
+		var curlPods [numAgents]string
+
+		BeforeAll(func() {
+			By("pre-creating 5 persistent curl pods (one per simulated agent)")
+			for i := 0; i < numAgents; i++ {
+				podName := persistentCurlPodName(fmt.Sprintf("pe11-agent-%d", i))
+				curlPods[i] = createPersistentCurlPodWithName(podName, namespace)
+			}
+			DeferCleanup(func() {
+				for _, pod := range curlPods {
+					deletePersistentCurlPod(pod, namespace)
+				}
+			})
+		})
+
 		It("should handle 10 concurrent requests from 5 agents without races", func() {
 			policyName := uniqueName("pe11-concurrent")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
@@ -917,7 +940,7 @@ spec:
 			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
-			By("launching 10 concurrent requests from 5 agents")
+			By("launching 10 concurrent requests from 5 agents (2 requests per agent pod)")
 			type result struct {
 				agentID    string
 				requestNum int
@@ -925,15 +948,17 @@ spec:
 				err        error
 			}
 
-			results := make([]result, 10)
+			totalRequests := numAgents * requestsPerAgent
+			results := make([]result, totalRequests)
 			var wg sync.WaitGroup
 
-			for i := 0; i < 10; i++ {
+			for i := 0; i < totalRequests; i++ {
 				wg.Add(1)
 				go func(idx int) {
 					defer wg.Done()
-					agentID := fmt.Sprintf("pe11-agent-%d", idx%5)
-					statusCode, _, reqErr := sendToolCallRequest(gwIP, agentID, "concurrent_deny", nil)
+					agentIdx := idx % numAgents
+					agentID := fmt.Sprintf("pe11-agent-%d", agentIdx)
+					statusCode, _, reqErr := execToolCallRequest(curlPods[agentIdx], gwIP, agentID, "concurrent_deny", nil)
 					results[idx] = result{
 						agentID:    agentID,
 						requestNum: idx,
@@ -965,6 +990,23 @@ spec:
 	// PE-12: Evaluation Latency <5ms p99 Under Load
 	// -----------------------------------------------------------------------
 	Context("PE-12: Latency Benchmark", func() {
+		const numBenchPods = 10
+		const requestsPerPod = 10
+		var benchPods [numBenchPods]string
+
+		BeforeAll(func() {
+			By("pre-creating 10 persistent curl pods for benchmark")
+			for i := 0; i < numBenchPods; i++ {
+				podName := persistentCurlPodName(fmt.Sprintf("pe12-bench-%d", i))
+				benchPods[i] = createPersistentCurlPodWithName(podName, namespace)
+			}
+			DeferCleanup(func() {
+				for _, pod := range benchPods {
+					deletePersistentCurlPod(pod, namespace)
+				}
+			})
+		})
+
 		It("should evaluate policies with p99 <5ms and p50 <2ms under load", func() {
 			By("applying 10 policies with varying complexity")
 			var policyNames []string
@@ -1014,11 +1056,12 @@ spec:
 				waitForPolicyReady(name, namespace, 2*time.Minute)
 			}
 
-			By("sending 100 sequential requests to measure latency")
+			By("sending 100 sequential requests via 10 persistent pods (10 requests each)")
 			var latencies []time.Duration
-			for i := 0; i < 100; i++ {
+			for i := 0; i < numBenchPods*requestsPerPod; i++ {
+				podIdx := i / requestsPerPod
 				start := time.Now()
-				_, _, err := sendToolCallRequest(gwIP,
+				_, _, err := execToolCallRequest(benchPods[podIdx], gwIP,
 					fmt.Sprintf("pe12-agent-%d", i%5),
 					fmt.Sprintf("bench_%d", i%10), nil)
 				elapsed := time.Since(start)
