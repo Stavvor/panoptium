@@ -45,12 +45,12 @@ type tracingPolicy struct {
 }
 
 type kprobeSpec struct {
-	Call       string        `yaml:"call"`
-	Syscall    bool          `yaml:"syscall"`
-	Args       []argSpec     `yaml:"args,omitempty"`
-	Selectors  []selectorSet `yaml:"selectors,omitempty"`
-	ReturnArg  *argSpec      `yaml:"returnArg,omitempty"`
-	ReturnArgAction string  `yaml:"returnArgAction,omitempty"`
+	Call            string        `yaml:"call"`
+	Syscall         bool          `yaml:"syscall"`
+	Args            []argSpec     `yaml:"args,omitempty"`
+	Selectors       []selectorSet `yaml:"selectors,omitempty"`
+	ReturnArg       *argSpec      `yaml:"returnArg,omitempty"`
+	ReturnArgAction string        `yaml:"returnArgAction,omitempty"`
 }
 
 type tracepointSpec struct {
@@ -67,10 +67,10 @@ type lsmSpec struct {
 }
 
 type argSpec struct {
-	Index    int    `yaml:"index"`
-	Type     string `yaml:"type"`
-	SizeArg  int    `yaml:"sizeArg,omitempty"`
-	Label    string `yaml:"label,omitempty"`
+	Index   int    `yaml:"index"`
+	Type    string `yaml:"type"`
+	SizeArg int    `yaml:"sizeArg,omitempty"`
+	Label   string `yaml:"label,omitempty"`
 }
 
 type selectorSet struct {

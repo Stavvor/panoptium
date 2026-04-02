@@ -290,7 +290,7 @@ func TestEventSource_RoundTrip(t *testing.T) {
 // TestAgentIdentity_RoundTrip verifies the AgentIdentity message fields.
 func TestAgentIdentity_RoundTrip(t *testing.T) {
 	agent := &AgentIdentity{
-		PodName:  "chatbot-pod-abc",
+		PodName:   "chatbot-pod-abc",
 		Namespace: "production",
 		Labels:    map[string]string{"app": "chatbot", "tier": "frontend"},
 		AuthType:  "jwt",

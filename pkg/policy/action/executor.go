@@ -108,10 +108,10 @@ type AllowExecutor struct{}
 // Execute permits the event and adds an audit annotation.
 func (e *AllowExecutor) Execute(ctx *ActionContext) (*ActionResult, error) {
 	return &ActionResult{
-		ActionType: "allow",
-		Permitted:  true,
-		RuleName:   ctx.Rule.Name,
-		RuleIndex:  ctx.Rule.Index,
+		ActionType:      "allow",
+		Permitted:       true,
+		RuleName:        ctx.Rule.Name,
+		RuleIndex:       ctx.Rule.Index,
 		PolicyReference: formatPolicyRef(ctx.PolicyNamespace, ctx.PolicyName),
 		Annotations: map[string]string{
 			"audit": "allowed",
@@ -183,13 +183,13 @@ func (e *AlertExecutor) Execute(ctx *ActionContext) (*ActionResult, error) {
 	}
 
 	return &ActionResult{
-		ActionType:    "alert",
-		Permitted:     true,
-		RuleName:      ctx.Rule.Name,
-		RuleIndex:     ctx.Rule.Index,
+		ActionType:      "alert",
+		Permitted:       true,
+		RuleName:        ctx.Rule.Name,
+		RuleIndex:       ctx.Rule.Index,
 		PolicyReference: formatPolicyRef(ctx.PolicyNamespace, ctx.PolicyName),
-		AlertEmitted:  true,
-		AlertSeverity: severity,
+		AlertEmitted:    true,
+		AlertSeverity:   severity,
 		Annotations: map[string]string{
 			"audit": "alert-emitted",
 		},

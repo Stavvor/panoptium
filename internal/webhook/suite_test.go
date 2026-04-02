@@ -65,7 +65,7 @@ var _ = BeforeSuite(func() {
 	By("bootstrapping test environment")
 	failPolicy := admissionv1.Fail
 	sideEffects := admissionv1.SideEffectClassNone
-	webhookPath := "/validate-panoptium-io-v1alpha1-panoptiumpolicy"
+	webhookPath := "/validate-panoptium-io-v1alpha1-agentpolicy"
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
@@ -78,7 +78,7 @@ var _ = BeforeSuite(func() {
 					},
 					Webhooks: []admissionv1.ValidatingWebhook{
 						{
-							Name:                    "vpanoptiumpolicy.kb.io",
+							Name:                    "vagentpolicy.kb.io",
 							AdmissionReviewVersions: []string{"v1"},
 							SideEffects:             &sideEffects,
 							FailurePolicy:           &failPolicy,
@@ -96,7 +96,7 @@ var _ = BeforeSuite(func() {
 									Rule: admissionv1.Rule{
 										APIGroups:   []string{"panoptium.io"},
 										APIVersions: []string{"v1alpha1"},
-										Resources:   []string{"panoptiumpolicies"},
+										Resources:   []string{"agentpolicies"},
 									},
 								},
 							},
@@ -130,8 +130,8 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	// Register the validating webhook (PanoptiumPolicy validator only)
-	err = (&PanoptiumPolicyValidator{}).SetupWebhookWithManager(mgr)
+	// Register the validating webhook (AgentPolicy validator only)
+	err = (&AgentPolicyValidator{}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	go func() {

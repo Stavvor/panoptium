@@ -38,7 +38,7 @@ type AuthorizationResult struct {
 // allow/deny patterns. Deny patterns take precedence over allow patterns.
 // If no allow patterns are configured, default policy is deny-all.
 type MCPToolAuthorizer struct {
-	mu           sync.RWMutex
+	mu            sync.RWMutex
 	allowPatterns []string
 	denyPatterns  []string
 }

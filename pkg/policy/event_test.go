@@ -75,8 +75,8 @@ func TestGetStringField_NonStringValue(t *testing.T) {
 		},
 	}
 	got := e.GetStringField("pid")
-	if got != "" {
-		t.Errorf("GetStringField(\"pid\") = %q, want empty string", got)
+	if got != "1234" {
+		t.Errorf("GetStringField(\"pid\") = %q, want %q", got, "1234")
 	}
 }
 
@@ -105,28 +105,26 @@ func TestGetIntField_IntValue(t *testing.T) {
 }
 
 func TestGetIntField_Int64Value(t *testing.T) {
-	// GetIntField only handles int type; int64 should return 0 per current implementation.
 	e := &PolicyEvent{
 		Fields: map[string]interface{}{
 			"bigPid": int64(999),
 		},
 	}
 	got := e.GetIntField("bigPid")
-	if got != 0 {
-		t.Errorf("GetIntField(\"bigPid\") with int64 = %d, want 0 (not handled by current impl)", got)
+	if got != 999 {
+		t.Errorf("GetIntField(\"bigPid\") with int64 = %d, want 999", got)
 	}
 }
 
 func TestGetIntField_Float64Value(t *testing.T) {
-	// GetIntField only handles int type; float64 should return 0 per current implementation.
 	e := &PolicyEvent{
 		Fields: map[string]interface{}{
 			"score": float64(3.14),
 		},
 	}
 	got := e.GetIntField("score")
-	if got != 0 {
-		t.Errorf("GetIntField(\"score\") with float64 = %d, want 0 (not handled by current impl)", got)
+	if got != 3 {
+		t.Errorf("GetIntField(\"score\") with float64 = %d, want 3", got)
 	}
 }
 

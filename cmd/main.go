@@ -173,61 +173,65 @@ func main() {
 		"enforcementMode", enforcementMode)
 
 	// Set up controllers
-	if err := (&controller.PanoptiumPolicyReconciler{
+	if err := (&controller.AgentPolicyReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorderFor("panoptiumpolicy-controller"),
+		Recorder:    mgr.GetEventRecorderFor("agentpolicy-controller"),
 		PolicyCache: policyCache,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PanoptiumPolicy")
+		setupLog.Error(err, "unable to create controller", "controller", "AgentPolicy")
 		os.Exit(1)
 	}
 
-	if err := (&controller.ClusterPanoptiumPolicyReconciler{
+	if err := (&controller.AgentClusterPolicyReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorderFor("clusterpanoptiumpolicy-controller"),
+		Recorder:    mgr.GetEventRecorderFor("agentclusterpolicy-controller"),
 		PolicyCache: policyCache,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ClusterPanoptiumPolicy")
+		setupLog.Error(err, "unable to create controller", "controller", "AgentClusterPolicy")
 		os.Exit(1)
 	}
 
-	if err := (&controller.PanoptiumAgentProfileReconciler{
+	if err := (&controller.AgentProfileReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("panoptiumagentprofile-controller"),
+		Recorder: mgr.GetEventRecorderFor("agentprofile-controller"),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PanoptiumAgentProfile")
+		setupLog.Error(err, "unable to create controller", "controller", "AgentProfile")
 		os.Exit(1)
 	}
 
 	threatRegistry := threat.NewCompiledSignatureRegistry()
-	if err := (&controller.PanoptiumThreatSignatureReconciler{
+	if err := (&controller.ThreatSignatureReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("panoptiumthreatsignature-controller"),
+		Recorder: mgr.GetEventRecorderFor("threatsignature-controller"),
 		Registry: threatRegistry,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PanoptiumThreatSignature")
+		setupLog.Error(err, "unable to create controller", "controller", "ThreatSignature")
 		os.Exit(1)
 	}
 
-	if err := (&controller.PanoptiumQuarantineReconciler{
+	if err := (&controller.AgentQuarantineReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("panoptiumquarantine-controller"),
+		Recorder: mgr.GetEventRecorderFor("agentquarantine-controller"),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PanoptiumQuarantine")
+		setupLog.Error(err, "unable to create controller", "controller", "AgentQuarantine")
 		os.Exit(1)
 	}
 
 	// Set up webhooks
-	if err := (&panoptiumwebhook.PanoptiumPolicyValidator{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "PanoptiumPolicy")
+	if err := (&panoptiumwebhook.AgentPolicyValidator{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "AgentPolicy")
 		os.Exit(1)
 	}
 
+	if err := (&panoptiumwebhook.ThreatSignatureValidator{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "ThreatSignatureValidator")
+		os.Exit(1)
+	}
 
 	// +kubebuilder:scaffold:builder
 
@@ -294,7 +298,7 @@ func main() {
 	}
 
 	// Set up the escalation manager to watch for repeated deny decisions
-	// and create PanoptiumQuarantine CRDs when thresholds are reached.
+	// and create AgentQuarantine CRDs when thresholds are reached.
 	escalationMgr := escalation.NewEscalationManager(bus, mgr.GetClient())
 	if err := mgr.Add(escalationMgr); err != nil {
 		setupLog.Error(err, "unable to add escalation manager")

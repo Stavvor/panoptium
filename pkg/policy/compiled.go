@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package policy implements the Panoptium policy engine: compilation of
-// PanoptiumPolicy CRD specs into optimized intermediate representations
+// AgentPolicy CRD specs into optimized intermediate representations
 // and evaluation of runtime events against compiled rules.
 package policy
 
@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// CompiledPolicy is the optimized intermediate representation of a PanoptiumPolicy
+// CompiledPolicy is the optimized intermediate representation of a AgentPolicy
 // CRD spec. It contains pre-compiled matchers and a decision tree for fast
 // evaluation of runtime events.
 type CompiledPolicy struct {
@@ -51,7 +51,7 @@ type CompiledPolicy struct {
 	// Rules is the ordered list of compiled rules for decision tree evaluation.
 	Rules []*CompiledRule
 
-	// IsClusterScoped indicates whether this is a ClusterPanoptiumPolicy.
+	// IsClusterScoped indicates whether this is a AgentClusterPolicy.
 	IsClusterScoped bool
 }
 

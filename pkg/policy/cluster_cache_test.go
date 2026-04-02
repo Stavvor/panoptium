@@ -24,12 +24,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func makeTestClusterPolicy(name string, priority int32) *v1alpha1.ClusterPanoptiumPolicy {
-	return &v1alpha1.ClusterPanoptiumPolicy{
+func makeTestClusterPolicy(name string, priority int32) *v1alpha1.AgentClusterPolicy {
+	return &v1alpha1.AgentClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Spec: v1alpha1.ClusterPanoptiumPolicySpec{
+		Spec: v1alpha1.AgentClusterPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        priority,
@@ -172,13 +172,13 @@ func TestPolicyCache_InvalidationCallback_OnDeleteCluster(t *testing.T) {
 	}
 }
 
-// Test: Spec parity — ClusterPanoptiumPolicySpec fields match PanoptiumPolicySpec fields.
+// Test: Spec parity — AgentClusterPolicySpec fields match AgentPolicySpec fields.
 func TestSpecParity_ClusterAndNamespaceFields(t *testing.T) {
-	nsType := reflect.TypeOf(v1alpha1.PanoptiumPolicySpec{})
-	clusterType := reflect.TypeOf(v1alpha1.ClusterPanoptiumPolicySpec{})
+	nsType := reflect.TypeOf(v1alpha1.AgentPolicySpec{})
+	clusterType := reflect.TypeOf(v1alpha1.AgentClusterPolicySpec{})
 
 	if nsType.NumField() != clusterType.NumField() {
-		t.Errorf("field count mismatch: PanoptiumPolicySpec has %d fields, ClusterPanoptiumPolicySpec has %d",
+		t.Errorf("field count mismatch: AgentPolicySpec has %d fields, AgentClusterPolicySpec has %d",
 			nsType.NumField(), clusterType.NumField())
 	}
 
@@ -186,17 +186,17 @@ func TestSpecParity_ClusterAndNamespaceFields(t *testing.T) {
 		nsField := nsType.Field(i)
 		clusterField, found := clusterType.FieldByName(nsField.Name)
 		if !found {
-			t.Errorf("ClusterPanoptiumPolicySpec missing field %q", nsField.Name)
+			t.Errorf("AgentClusterPolicySpec missing field %q", nsField.Name)
 			continue
 		}
 		if nsField.Type != clusterField.Type {
-			t.Errorf("type mismatch for field %q: PanoptiumPolicySpec has %v, ClusterPanoptiumPolicySpec has %v",
+			t.Errorf("type mismatch for field %q: AgentPolicySpec has %v, AgentClusterPolicySpec has %v",
 				nsField.Name, nsField.Type, clusterField.Type)
 		}
 		nsTag := nsField.Tag.Get("json")
 		clusterTag := clusterField.Tag.Get("json")
 		if nsTag != clusterTag {
-			t.Errorf("json tag mismatch for field %q: PanoptiumPolicySpec has %q, ClusterPanoptiumPolicySpec has %q",
+			t.Errorf("json tag mismatch for field %q: AgentPolicySpec has %q, AgentClusterPolicySpec has %q",
 				nsField.Name, nsTag, clusterTag)
 		}
 	}

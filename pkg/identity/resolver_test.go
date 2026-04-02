@@ -220,4 +220,3 @@ func TestResolveFromIP_BareIP(t *testing.T) {
 		t.Errorf("SourceIP = %q, want %q", identity.SourceIP, "10.0.5.50")
 	}
 }
-

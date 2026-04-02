@@ -32,32 +32,32 @@ import (
 	"github.com/panoptium/panoptium/pkg/policy"
 )
 
-// ClusterPanoptiumPolicyReconciler reconciles a ClusterPanoptiumPolicy object.
+// AgentClusterPolicyReconciler reconciles a AgentClusterPolicy object.
 // It manages status conditions (Ready, Degraded, Error), tracks observedGeneration,
 // counts compiled rules, and emits Kubernetes events for state transitions.
-type ClusterPanoptiumPolicyReconciler struct {
+type AgentClusterPolicyReconciler struct {
 	client.Client
 	Scheme      *runtime.Scheme
 	Recorder    record.EventRecorder
 	PolicyCache *policy.PolicyCache
 }
 
-// +kubebuilder:rbac:groups=panoptium.io,resources=clusterpanoptiumpolicies,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=panoptium.io,resources=clusterpanoptiumpolicies/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=panoptium.io,resources=clusterpanoptiumpolicies/finalizers,verbs=update
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentclusterpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentclusterpolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentclusterpolicies/finalizers,verbs=update
 
-// Reconcile handles reconciliation for ClusterPanoptiumPolicy resources.
+// Reconcile handles reconciliation for AgentClusterPolicy resources.
 // It validates the spec, sets status conditions, and updates observedGeneration.
-func (r *ClusterPanoptiumPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *AgentClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	// Fetch the ClusterPanoptiumPolicy instance
-	pol := &panoptiumiov1alpha1.ClusterPanoptiumPolicy{}
+	// Fetch the AgentClusterPolicy instance
+	pol := &panoptiumiov1alpha1.AgentClusterPolicy{}
 	if err := r.Get(ctx, req.NamespacedName, pol); err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			// Resource was deleted — remove from PolicyCache
 			if r.PolicyCache != nil {
-				deletedPol := &panoptiumiov1alpha1.ClusterPanoptiumPolicy{}
+				deletedPol := &panoptiumiov1alpha1.AgentClusterPolicy{}
 				deletedPol.Name = req.Name
 				if cacheErr := r.PolicyCache.OnDeleteCluster(deletedPol); cacheErr != nil {
 					logger.Error(cacheErr, "failed to remove cluster policy from cache on delete")
@@ -70,7 +70,7 @@ func (r *ClusterPanoptiumPolicyReconciler) Reconcile(ctx context.Context, req ct
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Reconciling ClusterPanoptiumPolicy", "name", pol.Name)
+	logger.Info("Reconciling AgentClusterPolicy", "name", pol.Name)
 
 	// Validate and reconcile
 	degraded := false
@@ -156,11 +156,11 @@ func (r *ClusterPanoptiumPolicyReconciler) Reconcile(ctx context.Context, req ct
 
 	// Update status subresource
 	if err := r.Status().Update(ctx, pol); err != nil {
-		logger.Error(err, "Failed to update ClusterPanoptiumPolicy status")
+		logger.Error(err, "Failed to update AgentClusterPolicy status")
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("ClusterPanoptiumPolicy reconciled successfully",
+	logger.Info("AgentClusterPolicy reconciled successfully",
 		"name", pol.Name,
 		"ruleCount", pol.Status.RuleCount,
 		"observedGeneration", pol.Status.ObservedGeneration,
@@ -170,8 +170,8 @@ func (r *ClusterPanoptiumPolicyReconciler) Reconcile(ctx context.Context, req ct
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ClusterPanoptiumPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AgentClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&panoptiumiov1alpha1.ClusterPanoptiumPolicy{}).
+		For(&panoptiumiov1alpha1.AgentClusterPolicy{}).
 		Complete(r)
 }

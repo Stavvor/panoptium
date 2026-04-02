@@ -37,14 +37,14 @@ var _ = Describe("Webhook Integration", func() {
 	_ = timeout
 	_ = interval
 
-	Context("PanoptiumPolicy Validating Webhook", func() {
-		It("Should accept a valid PanoptiumPolicy", func() {
-			policy := &panoptiumiov1alpha1.PanoptiumPolicy{
+	Context("AgentPolicy Validating Webhook", func() {
+		It("Should accept a valid AgentPolicy", func() {
+			policy := &panoptiumiov1alpha1.AgentPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "valid-policy-integration",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+				Spec: panoptiumiov1alpha1.AgentPolicySpec{
 					TargetSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "agent"},
 					},
@@ -69,18 +69,18 @@ var _ = Describe("Webhook Integration", func() {
 
 			// Verify it was actually created
 			lookupKey := types.NamespacedName{Name: "valid-policy-integration", Namespace: "default"}
-			createdPolicy := &panoptiumiov1alpha1.PanoptiumPolicy{}
+			createdPolicy := &panoptiumiov1alpha1.AgentPolicy{}
 			Expect(k8sClient.Get(ctx, lookupKey, createdPolicy)).Should(Succeed())
 			Expect(createdPolicy.Spec.Priority).Should(Equal(int32(100)))
 		})
 
-		It("Should reject an invalid PanoptiumPolicy with priority=0", func() {
-			policy := &panoptiumiov1alpha1.PanoptiumPolicy{
+		It("Should reject an invalid AgentPolicy with priority=0", func() {
+			policy := &panoptiumiov1alpha1.AgentPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "invalid-policy-priority-zero",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+				Spec: panoptiumiov1alpha1.AgentPolicySpec{
 					TargetSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "agent"},
 					},
@@ -102,7 +102,7 @@ var _ = Describe("Webhook Integration", func() {
 			}
 
 			err := k8sClient.Create(ctx, policy)
-			Expect(err).Should(HaveOccurred(), "Should reject PanoptiumPolicy with priority=0")
+			Expect(err).Should(HaveOccurred(), "Should reject AgentPolicy with priority=0")
 		})
 	})
 })

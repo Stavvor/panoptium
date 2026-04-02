@@ -78,13 +78,13 @@ func TestEscalationManager_ThreeDeniesTriggerQuarantine(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify quarantine was created
-	var quarantineList v1alpha1.PanoptiumQuarantineList
+	var quarantineList v1alpha1.AgentQuarantineList
 	if err := fakeClient.List(ctx, &quarantineList); err != nil {
 		t.Fatalf("failed to list quarantines: %v", err)
 	}
 
 	if len(quarantineList.Items) == 0 {
-		t.Fatal("expected at least one PanoptiumQuarantine to be created, got 0")
+		t.Fatal("expected at least one AgentQuarantine to be created, got 0")
 	}
 
 	q := quarantineList.Items[0]
@@ -148,7 +148,7 @@ func TestEscalationManager_NoEscalationParamsIgnored(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	var quarantineList v1alpha1.PanoptiumQuarantineList
+	var quarantineList v1alpha1.AgentQuarantineList
 	if err := fakeClient.List(ctx, &quarantineList); err != nil {
 		t.Fatalf("failed to list quarantines: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestEscalationManager_NonDenyActionsIgnored(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	var quarantineList v1alpha1.PanoptiumQuarantineList
+	var quarantineList v1alpha1.AgentQuarantineList
 	if err := fakeClient.List(ctx, &quarantineList); err != nil {
 		t.Fatalf("failed to list quarantines: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestEscalationManager_EmptyIdentityErrorsNotSilent(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Verify no quarantine was created (identity was empty, so escalation couldn't proceed)
-	var quarantineList v1alpha1.PanoptiumQuarantineList
+	var quarantineList v1alpha1.AgentQuarantineList
 	if err := fakeClient.List(ctx, &quarantineList); err != nil {
 		t.Fatalf("failed to list quarantines: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestEscalationManager_NamespaceFallback(t *testing.T) {
 	}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
-		WithStatusSubresource(&v1alpha1.PanoptiumQuarantine{}).Build()
+		WithStatusSubresource(&v1alpha1.AgentQuarantine{}).Build()
 	bus := eventbus.NewSimpleBus()
 	defer bus.Close()
 
@@ -352,7 +352,7 @@ func TestEscalationManager_NamespaceFallback(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	var quarantineList v1alpha1.PanoptiumQuarantineList
+	var quarantineList v1alpha1.AgentQuarantineList
 	if err := fakeClient.List(ctx, &quarantineList, &client.ListOptions{
 		Namespace: "policy-ns",
 	}); err != nil {
@@ -361,7 +361,7 @@ func TestEscalationManager_NamespaceFallback(t *testing.T) {
 
 	if len(quarantineList.Items) == 0 {
 		// List across all namespaces to see what we got
-		var allList v1alpha1.PanoptiumQuarantineList
+		var allList v1alpha1.AgentQuarantineList
 		_ = fakeClient.List(ctx, &allList)
 		for _, q := range allList.Items {
 			t.Logf("quarantine in ns=%q, pod=%q", q.Namespace, q.Spec.TargetPod)
@@ -379,4 +379,3 @@ func TestEscalationManager_NamespaceFallback(t *testing.T) {
 		t.Errorf("manager returned error: %v", err)
 	}
 }
-

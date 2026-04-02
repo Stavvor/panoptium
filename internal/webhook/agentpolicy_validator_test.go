@@ -27,13 +27,13 @@ import (
 
 // TestValidateCreate_ValidPolicy verifies that a valid policy passes validation.
 func TestValidateCreate_ValidPolicy(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{
+	v := &AgentPolicyValidator{}
+	policy := &panoptiumiov1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "valid-policy",
 			Namespace: "default",
 		},
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
@@ -65,18 +65,18 @@ func TestValidateCreate_ValidPolicy(t *testing.T) {
 
 // TestValidateCreate_PriorityTooHigh verifies rejection of priority > 1000.
 func TestValidateCreate_PriorityTooHigh(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	v := &AgentPolicyValidator{}
+	policy := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
 			Priority: 1001,
 			Rules: []panoptiumiov1alpha1.PolicyRule{
 				{
-					Name:    "r",
-					Trigger: panoptiumiov1alpha1.Trigger{EventCategory: "s"},
-					Action:  panoptiumiov1alpha1.Action{Type: panoptiumiov1alpha1.ActionTypeDeny},
+					Name:     "r",
+					Trigger:  panoptiumiov1alpha1.Trigger{EventCategory: "s"},
+					Action:   panoptiumiov1alpha1.Action{Type: panoptiumiov1alpha1.ActionTypeDeny},
 					Severity: panoptiumiov1alpha1.SeverityHigh,
 				},
 			},
@@ -91,9 +91,9 @@ func TestValidateCreate_PriorityTooHigh(t *testing.T) {
 
 // TestValidateCreate_PriorityTooLow verifies rejection of priority < 1.
 func TestValidateCreate_PriorityTooLow(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	v := &AgentPolicyValidator{}
+	policy := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
@@ -117,9 +117,9 @@ func TestValidateCreate_PriorityTooLow(t *testing.T) {
 
 // TestValidateCreate_InvalidCEL verifies rejection of invalid CEL expression.
 func TestValidateCreate_InvalidCEL(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	v := &AgentPolicyValidator{}
+	policy := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
@@ -146,9 +146,9 @@ func TestValidateCreate_InvalidCEL(t *testing.T) {
 
 // TestValidateCreate_InvalidRegex verifies rejection of invalid regex pattern.
 func TestValidateCreate_InvalidRegex(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	v := &AgentPolicyValidator{}
+	policy := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
@@ -175,9 +175,9 @@ func TestValidateCreate_InvalidRegex(t *testing.T) {
 
 // TestValidateCreate_MissingRules verifies rejection when rules are missing.
 func TestValidateCreate_MissingRules(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	v := &AgentPolicyValidator{}
+	policy := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
@@ -194,9 +194,9 @@ func TestValidateCreate_MissingRules(t *testing.T) {
 
 // TestValidateCreate_EmptyTargetSelectorWarning verifies warning for empty selector.
 func TestValidateCreate_EmptyTargetSelectorWarning(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	v := &AgentPolicyValidator{}
+	policy := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{},
 			Priority:       100,
 			Rules: []panoptiumiov1alpha1.PolicyRule{
@@ -221,9 +221,9 @@ func TestValidateCreate_EmptyTargetSelectorWarning(t *testing.T) {
 
 // TestValidateCreate_ValidCEL verifies valid CEL expressions pass validation.
 func TestValidateCreate_ValidCEL(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	v := &AgentPolicyValidator{}
+	policy := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
@@ -250,14 +250,14 @@ func TestValidateCreate_ValidCEL(t *testing.T) {
 
 // TestValidateUpdate verifies that update validation works the same as create.
 func TestValidateUpdate(t *testing.T) {
-	v := &PanoptiumPolicyValidator{}
-	old := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	v := &AgentPolicyValidator{}
+	old := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			Priority: 100,
 		},
 	}
-	new := &panoptiumiov1alpha1.PanoptiumPolicy{
-		Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+	new := &panoptiumiov1alpha1.AgentPolicy{
+		Spec: panoptiumiov1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},

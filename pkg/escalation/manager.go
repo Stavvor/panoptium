@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package escalation wires the EscalationProcessor to the event bus and
-// creates PanoptiumQuarantine CRDs when escalation thresholds are reached.
+// creates AgentQuarantine CRDs when escalation thresholds are reached.
 package escalation
 
 import (
@@ -33,7 +33,7 @@ import (
 
 // EscalationManager subscribes to policy decision events on the event bus,
 // feeds deny actions into an EscalationProcessor, and creates
-// PanoptiumQuarantine resources when escalation thresholds are reached.
+// AgentQuarantine resources when escalation thresholds are reached.
 // It implements manager.Runnable so it can be added to the controller-runtime
 // manager via mgr.Add().
 type EscalationManager struct {
@@ -149,7 +149,7 @@ func (m *EscalationManager) handleEvent(ctx context.Context, evt eventbus.Event)
 		)
 
 		if err := m.createQuarantine(ctx, enfEvt.AgentInfo, enfEvt.PolicyName, enfEvt.PolicyNamespace, reason); err != nil {
-			l.Error(err, "failed to create PanoptiumQuarantine",
+			l.Error(err, "failed to create AgentQuarantine",
 				"agent", agentKey,
 				"policy", enfEvt.PolicyName,
 			)
@@ -157,7 +157,7 @@ func (m *EscalationManager) handleEvent(ctx context.Context, evt eventbus.Event)
 	}
 }
 
-// createQuarantine builds and creates a PanoptiumQuarantine resource.
+// createQuarantine builds and creates a AgentQuarantine resource.
 func (m *EscalationManager) createQuarantine(ctx context.Context, agent eventbus.AgentIdentity, policyName, policyNamespace, reason string) error {
 	ns := agent.Namespace
 	if ns == "" {
@@ -172,12 +172,12 @@ func (m *EscalationManager) createQuarantine(ctx context.Context, agent eventbus
 		podName = agent.ID
 	}
 
-	quarantine := &v1alpha1.PanoptiumQuarantine{
+	quarantine := &v1alpha1.AgentQuarantine{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "escalation-",
 			Namespace:    ns,
 		},
-		Spec: v1alpha1.PanoptiumQuarantineSpec{
+		Spec: v1alpha1.AgentQuarantineSpec{
 			TargetPod:        podName,
 			TargetNamespace:  ns,
 			ContainmentLevel: v1alpha1.ContainmentLevelNetworkIsolate,

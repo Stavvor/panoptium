@@ -4,32 +4,32 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
-  name: panoptiumpolicies.panoptium.io
+  name: agentprofiles.panoptium.io
 spec:
   group: panoptium.io
   names:
-    kind: PanoptiumPolicy
-    listKind: PanoptiumPolicyList
-    plural: panoptiumpolicies
-    singular: panoptiumpolicy
+    kind: AgentProfile
+    listKind: AgentProfileList
+    plural: agentprofiles
+    singular: agentprofile
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: Enforcement mode
-      jsonPath: .spec.enforcementMode
-      name: Enforcement
+    - description: Agent type
+      jsonPath: .spec.agentType
+      name: Type
       type: string
-    - description: Policy priority
-      jsonPath: .spec.priority
-      name: Priority
-      type: integer
-    - description: Number of rules
-      jsonPath: .status.ruleCount
-      name: Rules
-      type: integer
-    - description: Matching pods
-      jsonPath: .status.matchingPods
-      name: Pods
+    - description: Learning mode
+      jsonPath: .spec.learningMode
+      name: Learning
+      type: boolean
+    - description: Baseline health
+      jsonPath: .status.baselineHealth
+      name: Health
+      type: string
+    - description: Matching agents
+      jsonPath: .status.matchingAgents
+      name: Agents
       type: integer
     - description: Ready status
       jsonPath: .status.conditions[?(@.type=="Ready")].status
@@ -42,9 +42,9 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          PanoptiumPolicy is the Schema for the panoptiumpolicies API.
-          It defines namespace-scoped security policies with trigger-predicate-action rules
-          for monitoring and controlling AI agent behavior within Kubernetes.
+          AgentProfile is the Schema for the agentprofiles API.
+          It defines behavioral baselines for AI agent pods, enabling anomaly detection
+          by establishing expected patterns of tool calls, resource usage, and network activity.
         properties:
           apiVersion:
             description: |-
@@ -64,136 +64,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: Spec defines the desired policy configuration.
+            description: Spec defines the desired agent profile configuration.
             properties:
-              enforcementMode:
-                default: audit
-                description: EnforcementMode controls whether actions are enforced,
-                  audited, or disabled.
-                enum:
-                - enforcing
-                - audit
-                - disabled
-                type: string
-              priority:
-                description: |-
-                  Priority determines evaluation order when multiple policies match the same pod.
-                  Higher priority policies override lower ones on conflict. Range: 1-1000.
-                format: int32
-                maximum: 1000
-                minimum: 1
-                type: integer
-              rules:
-                description: Rules is the list of trigger-predicate-action rules evaluated
-                  by this policy.
-                items:
-                  description: PolicyRule defines a single trigger-predicate-action
-                    rule within a PanoptiumPolicy.
-                  properties:
-                    action:
-                      description: Action defines the response to take when the rule
-                        matches.
-                      properties:
-                        parameters:
-                          additionalProperties:
-                            type: string
-                          description: |-
-                            Parameters contains action-specific configuration as key-value pairs.
-                            For rateLimit: "requestsPerMinute", "burstSize"
-                          type: object
-                        type:
-                          description: Type is the kind of action to take.
-                          enum:
-                          - allow
-                          - deny
-                          - alert
-                          - quarantine
-                          - rateLimit
-                          type: string
-                      required:
-                      - type
-                      type: object
-                    name:
-                      description: Name is a human-readable identifier for this rule.
-                      maxLength: 253
-                      minLength: 1
-                      type: string
-                    predicates:
-                      description: |-
-                        Predicates are conditions that must all be true for the action to execute.
-                        Each predicate contains a CEL expression evaluated against the triggering event.
-                      items:
-                        description: Predicate defines a condition that must be true
-                          for a rule's action to execute.
-                        properties:
-                          cel:
-                            description: |-
-                              CEL is a Common Expression Language expression evaluated against the event.
-                              The expression must return a boolean value.
-                            minLength: 1
-                            type: string
-                        required:
-                        - cel
-                        type: object
-                      type: array
-                    severity:
-                      description: Severity indicates the severity level of events
-                        matching this rule.
-                      enum:
-                      - INFO
-                      - LOW
-                      - MEDIUM
-                      - HIGH
-                      - CRITICAL
-                      type: string
-                    threatSignatures:
-                      description: |-
-                        ThreatSignatures optionally constrains this rule to fire only when a
-                        threat signature matching these criteria is detected.
-                      properties:
-                        categories:
-                          description: Categories matches signatures by attack category.
-                          items:
-                            type: string
-                          type: array
-                        names:
-                          description: Names matches specific threat signatures by
-                            name.
-                          items:
-                            type: string
-                          type: array
-                        severities:
-                          description: Severities matches signatures by severity level.
-                          items:
-                            type: string
-                          type: array
-                      type: object
-                    trigger:
-                      description: Trigger defines the event that activates this rule.
-                      properties:
-                        eventCategory:
-                          description: EventCategory is the top-level event category
-                            to match (e.g., "syscall", "network", "llm").
-                          minLength: 1
-                          type: string
-                        eventSubcategory:
-                          description: |-
-                            EventSubcategory is the event subcategory pattern to match (e.g., "execve", "connect", "request.start").
-                            Supports glob patterns with '*' wildcard.
-                          type: string
-                      required:
-                      - eventCategory
-                      type: object
-                  required:
-                  - action
-                  - name
-                  - severity
-                  - trigger
-                  type: object
-                minItems: 1
-                type: array
-              targetSelector:
-                description: TargetSelector selects the pods this policy applies to.
+              agentSelector:
+                description: AgentSelector selects the agent pods this profile describes.
                 properties:
                   matchExpressions:
                     description: matchExpressions is a list of label selector requirements.
@@ -238,19 +112,78 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+              agentType:
+                description: |-
+                  AgentType is a classification label for the agent (e.g., "coding-assistant",
+                  "data-analyst", "autonomous-agent").
+                minLength: 1
+                type: string
+              baselines:
+                description: Baselines defines the expected behavioral baselines for
+                  agents matching this profile.
+                properties:
+                  expectedToolCalls:
+                    description: ExpectedToolCalls is the list of tool/function names
+                      the agent normally invokes.
+                    items:
+                      type: string
+                    type: array
+                  maxRequestsPerMinute:
+                    description: MaxRequestsPerMinute is the expected request rate
+                      ceiling for this agent.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  normalResourceUsage:
+                    description: NormalResourceUsage defines expected CPU, memory,
+                      and network bandwidth baselines.
+                    properties:
+                      cpuMillicores:
+                        description: CPUMillicores is the expected baseline CPU usage
+                          in millicores.
+                        format: int32
+                        type: integer
+                      memoryMB:
+                        description: MemoryMB is the expected baseline memory usage
+                          in megabytes.
+                        format: int32
+                        type: integer
+                      networkBandwidthKBps:
+                        description: NetworkBandwidthKBps is the expected baseline
+                          network bandwidth in kilobytes per second.
+                        format: int32
+                        type: integer
+                    type: object
+                  typicalNetworkDestinations:
+                    description: |-
+                      TypicalNetworkDestinations is the list of expected egress destinations
+                      (hostnames or CIDRs) the agent normally communicates with.
+                    items:
+                      type: string
+                    type: array
+                type: object
+              learningMode:
+                default: false
+                description: |-
+                  LearningMode indicates whether the profile is in learning mode.
+                  When true, baselines are auto-updated based on observed behavior.
+                type: boolean
             required:
-            - enforcementMode
-            - priority
-            - rules
-            - targetSelector
+            - agentSelector
+            - agentType
             type: object
           status:
-            description: Status reflects the observed state of the policy.
+            description: Status reflects the observed state of the agent profile.
             properties:
+              baselineHealth:
+                description: |-
+                  BaselineHealth indicates the current health of the baselines.
+                  Values: healthy, degraded, learning.
+                type: string
               conditions:
                 description: |-
-                  Conditions represent the latest available observations of the policy's state.
-                  Supported condition types: Ready, Enforcing, Degraded, Error.
+                  Conditions represent the latest available observations of the profile's state.
+                  Supported condition types: Ready, Learning, BaselineEstablished.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -306,19 +239,20 @@ spec:
                   - type
                   type: object
                 type: array
-              matchingPods:
-                description: MatchingPods is the number of pods currently matching
-                  the targetSelector.
+              lastBaselineUpdate:
+                description: LastBaselineUpdate is the timestamp of the last baseline
+                  update.
+                format: date-time
+                type: string
+              matchingAgents:
+                description: MatchingAgents is the number of agent pods matching the
+                  agentSelector.
                 format: int32
                 type: integer
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   by the controller.
                 format: int64
-                type: integer
-              ruleCount:
-                description: RuleCount is the number of compiled rules in this policy.
-                format: int32
                 type: integer
             type: object
         type: object

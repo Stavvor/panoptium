@@ -85,10 +85,10 @@ var _ = Describe("Policy Engine E2E", Label("e2e-policy"), Ordered, func() {
 	// PE-1: Policy Compilation via CRD Apply and Status Reporting
 	// -----------------------------------------------------------------------
 	Context("PE-1: Policy Compilation", func() {
-		It("should compile a valid PanoptiumPolicy and set Ready=True with correct ruleCount", func() {
+		It("should compile a valid AgentPolicy and set Ready=True with correct ruleCount", func() {
 			policyName := uniqueName("pe1-valid")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -111,9 +111,9 @@ spec:
       severity: CRITICAL
 `, policyName, namespace)
 
-			By("applying a valid PanoptiumPolicy")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			By("applying a valid AgentPolicy")
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 
 			By("waiting for Ready=True status")
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
@@ -124,7 +124,7 @@ spec:
 			Expect(count).To(Equal(int32(1)), "ruleCount should be 1")
 
 			By("verifying operator logs contain compilation success")
-			logs := getOperatorLogs("Reconciling PanoptiumPolicy")
+			logs := getOperatorLogs("Reconciling AgentPolicy")
 			Expect(logs).To(ContainSubstring(policyName),
 				"Operator logs should mention the policy name")
 		})
@@ -133,7 +133,7 @@ spec:
 			policyName := uniqueName("pe1-invalid")
 			// Use a malformed regex in the predicate CEL expression
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -156,17 +156,17 @@ spec:
       severity: HIGH
 `, policyName, namespace)
 
-			By("applying an invalid PanoptiumPolicy")
+			By("applying an invalid AgentPolicy")
 			// The policy may be accepted by the API (webhook may not catch regex issues)
 			// but the controller should set Ready=False during compilation
-			err := applyPanoptiumPolicy(yaml)
+			err := applyAgentPolicy(yaml)
 			if err != nil {
 				// If the webhook rejects it, that's also a valid outcome
 				_, _ = fmt.Fprintf(GinkgoWriter, "Policy rejected at admission: %v\n", err)
 				return
 			}
 
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 
 			By("waiting for Ready=False or checking status")
 			// The controller may set Ready=True if it doesn't validate regex at compile time
@@ -194,7 +194,7 @@ spec:
 		It("should block tool_call with deny rule (HTTP 403) and allow safe tools (HTTP 200)", func() {
 			policyName := uniqueName("pe2-deny")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -218,8 +218,8 @@ spec:
 `, policyName, namespace)
 
 			By("applying deny policy")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending tool_call for dangerous_exec and expecting HTTP 403")
@@ -251,7 +251,7 @@ spec:
 			allowPolicyName := uniqueName("pe3-allow")
 
 			denyYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -275,7 +275,7 @@ spec:
 `, denyPolicyName, namespace)
 
 			allowYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -299,11 +299,11 @@ spec:
 `, allowPolicyName, namespace)
 
 			By("applying deny and allow policies at equal priority")
-			Expect(applyPanoptiumPolicy(denyYAML)).To(Succeed())
-			Expect(applyPanoptiumPolicy(allowYAML)).To(Succeed())
+			Expect(applyAgentPolicy(denyYAML)).To(Succeed())
+			Expect(applyAgentPolicy(allowYAML)).To(Succeed())
 			DeferCleanup(func() {
-				deletePanoptiumPolicy(denyPolicyName, namespace)
-				deletePanoptiumPolicy(allowPolicyName, namespace)
+				deleteAgentPolicy(denyPolicyName, namespace)
+				deleteAgentPolicy(allowPolicyName, namespace)
 			})
 			waitForPolicyReady(denyPolicyName, namespace, 2*time.Minute)
 			waitForPolicyReady(allowPolicyName, namespace, 2*time.Minute)
@@ -331,7 +331,7 @@ spec:
 			namespacePolicyName := uniqueName("pe4-ns-allow")
 
 			clusterYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: ClusterPanoptiumPolicy
+kind: AgentClusterPolicy
 metadata:
   name: %s
 spec:
@@ -354,7 +354,7 @@ spec:
 `, clusterPolicyName)
 
 			nsYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -378,11 +378,11 @@ spec:
 `, namespacePolicyName, namespace)
 
 			By("applying cluster deny and namespace allow policies")
-			Expect(applyClusterPanoptiumPolicy(clusterYAML)).To(Succeed())
-			Expect(applyPanoptiumPolicy(nsYAML)).To(Succeed())
+			Expect(applyAgentClusterPolicy(clusterYAML)).To(Succeed())
+			Expect(applyAgentPolicy(nsYAML)).To(Succeed())
 			DeferCleanup(func() {
-				deleteClusterPanoptiumPolicy(clusterPolicyName)
-				deletePanoptiumPolicy(namespacePolicyName, namespace)
+				deleteAgentClusterPolicy(clusterPolicyName)
+				deleteAgentPolicy(namespacePolicyName, namespace)
 			})
 			waitForClusterPolicyReady(clusterPolicyName, 2*time.Minute)
 			waitForPolicyReady(namespacePolicyName, namespace, 2*time.Minute)
@@ -408,7 +408,7 @@ spec:
 		It("should throttle with HTTP 429 after rate limit exceeded", func() {
 			policyName := uniqueName("pe5-ratelimit")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -435,8 +435,8 @@ spec:
 `, policyName, namespace)
 
 			By("applying rate limit policy")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending 3 requests within limit — all should get HTTP 200")
@@ -466,10 +466,10 @@ spec:
 			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
 		})
 
-		It("should create PanoptiumQuarantine after 3 denials from same agent", func() {
+		It("should create AgentQuarantine after 3 denials from same agent", func() {
 			policyName := uniqueName("pe6-escalation")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -497,9 +497,9 @@ spec:
 `, policyName, namespace)
 
 			By("applying escalation policy")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
 			DeferCleanup(func() {
-				deletePanoptiumPolicy(policyName, namespace)
+				deleteAgentPolicy(policyName, namespace)
 				// Clean up any quarantine resources
 				cmd := exec.Command("kubectl", "delete", "panoptiumquarantine",
 					"--all", "-n", namespace, "--ignore-not-found=true")
@@ -516,7 +516,7 @@ spec:
 					fmt.Sprintf("Denial %d/3 should return 403", i))
 			}
 
-			By("verifying PanoptiumQuarantine was created")
+			By("verifying AgentQuarantine was created")
 			verifyQuarantine := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "panoptiumquarantine",
 					"-n", namespace,
@@ -524,7 +524,7 @@ spec:
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).NotTo(BeEmpty(),
-					"A PanoptiumQuarantine should have been created")
+					"A AgentQuarantine should have been created")
 			}
 			Eventually(verifyQuarantine, 2*time.Minute, 5*time.Second).Should(Succeed())
 		})
@@ -558,7 +558,7 @@ spec:
 		It("should emit alert when file_write followed by egress_attempt within window", func() {
 			policyName := uniqueName("pe7-temporal")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -585,8 +585,8 @@ spec:
 `, policyName, namespace)
 
 			By("applying temporal sequence policy")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("verifying policy was reconciled")
@@ -596,7 +596,7 @@ spec:
 				"Temporal sequence policy should be reconciled")
 
 			By("verifying operator logs show temporal sequence rule compiled")
-			logs := getOperatorLogs("Reconciling PanoptiumPolicy")
+			logs := getOperatorLogs("Reconciling AgentPolicy")
 			Expect(logs).To(ContainSubstring(policyName),
 				"Operator should have reconciled the temporal sequence policy")
 
@@ -605,10 +605,7 @@ spec:
 			// tool name "file_write" and a header hinting the path so the
 			// policy engine can match the trigger + predicate.
 			By("sending file_write tool_call (first event in temporal sequence)")
-			_, _, err = execToolCallRequest(curlPod, gwIP, "pe7-agent", "file_write",
-				map[string]string{
-					"x-panoptium-event-path": "/tmp/exfil_data",
-				})
+			_, _, err = execToolCallRequest(curlPod, gwIP, "pe7-agent", "file_write", nil)
 			// The file_write request itself may be allowed (alert action
 			// does not block), or it may not match the ExtProc path if the
 			// gateway does not synthesize a kernel.file_write event from an
@@ -663,7 +660,7 @@ spec:
 		It("should publish policy.decision event to NATS on deny", func() {
 			policyName := uniqueName("pe8-nats")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -687,8 +684,8 @@ spec:
 `, policyName, namespace)
 
 			By("applying deny policy for NATS event validation")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending tool_call to trigger deny and NATS event")
@@ -721,7 +718,7 @@ spec:
 		It("should convert deny to allow via rewritePath fallback", func() {
 			policyName := uniqueName("pe9-fallback")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -748,13 +745,12 @@ spec:
 `, policyName, namespace)
 
 			By("applying deny policy with rewritePath fallback")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending tool_call targeting /etc/shadow")
-			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "pe9-agent", "file_read",
-				map[string]string{"x-panoptium-path": "/etc/shadow"})
+			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "pe9-agent", "file_read", nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// The deny rule has fallback.rewritePath configured, so the FallbackEngine
@@ -799,7 +795,7 @@ spec:
 			policyName := uniqueName("pe10-hotreload")
 
 			denyYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -823,8 +819,8 @@ spec:
 `, policyName, namespace)
 
 			By("applying initial deny policy")
-			Expect(applyPanoptiumPolicy(denyYAML)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			Expect(applyAgentPolicy(denyYAML)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending request and verifying it is denied (HTTP 403)")
@@ -838,7 +834,7 @@ spec:
 
 			By("updating policy in-place to change deny to allow")
 			allowYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -860,7 +856,7 @@ spec:
         type: allow
       severity: LOW
 `, policyName, namespace)
-			Expect(applyPanoptiumPolicy(allowYAML)).To(Succeed())
+			Expect(applyAgentPolicy(allowYAML)).To(Succeed())
 
 			By("waiting for policy reconciliation after update")
 			verifyUpdated := func(g Gomega) {
@@ -912,7 +908,7 @@ spec:
 		It("should handle 10 concurrent requests from 5 agents without races", func() {
 			policyName := uniqueName("pe11-concurrent")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -936,8 +932,8 @@ spec:
 `, policyName, namespace)
 
 			By("applying deny policy for concurrency test")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("launching 10 concurrent requests from 5 agents (2 requests per agent pod)")
@@ -1018,7 +1014,7 @@ spec:
 				policyNames = append(policyNames, policyName)
 
 				yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -1043,11 +1039,11 @@ spec:
 					categories[i%len(categories)],
 					subcategories[i%len(subcategories)], i)
 
-				Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
+				Expect(applyAgentPolicy(yaml)).To(Succeed())
 			}
 			DeferCleanup(func() {
 				for _, name := range policyNames {
-					deletePanoptiumPolicy(name, namespace)
+					deleteAgentPolicy(name, namespace)
 				}
 			})
 

@@ -16,7 +16,7 @@ limitations under the License.
 
 // Package threat provides CRD-driven threat signature matching for protocol
 // parsers. It replaces hardcoded attack patterns with a compiled, thread-safe
-// registry of signatures loaded from PanoptiumThreatSignature CRD resources.
+// registry of signatures loaded from ThreatSignature CRD resources.
 package threat
 
 import (
@@ -153,10 +153,10 @@ type CELDef struct {
 
 // compiledSignature holds a compiled signature with precompiled regexps.
 type compiledSignature struct {
-	def         SignatureDefinition
-	patterns    []compiledPattern
+	def          SignatureDefinition
+	patterns     []compiledPattern
 	celEvaluator *CELEvaluator
-	celDefs     []CELDef
+	celDefs      []CELDef
 }
 
 // compiledPattern holds a precompiled regexp with its weight and target.

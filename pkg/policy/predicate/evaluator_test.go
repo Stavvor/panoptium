@@ -339,9 +339,9 @@ func TestNumericComparisonEvaluator_LessThan(t *testing.T) {
 
 func TestNumericComparisonEvaluator_Between(t *testing.T) {
 	eval := &NumericComparisonEvaluator{
-		FieldPath: "tokenCount",
-		Op:        OpBetween,
-		Value:     100,
+		FieldPath:  "tokenCount",
+		Op:         OpBetween,
+		Value:      100,
 		UpperBound: 500,
 	}
 
@@ -364,9 +364,9 @@ func TestNumericComparisonEvaluator_Between(t *testing.T) {
 
 func TestNumericComparisonEvaluator_Between_BelowRange(t *testing.T) {
 	eval := &NumericComparisonEvaluator{
-		FieldPath: "tokenCount",
-		Op:        OpBetween,
-		Value:     100,
+		FieldPath:  "tokenCount",
+		Op:         OpBetween,
+		Value:      100,
 		UpperBound: 500,
 	}
 
@@ -389,9 +389,9 @@ func TestNumericComparisonEvaluator_Between_BelowRange(t *testing.T) {
 
 func TestNumericComparisonEvaluator_Between_AboveRange(t *testing.T) {
 	eval := &NumericComparisonEvaluator{
-		FieldPath: "tokenCount",
-		Op:        OpBetween,
-		Value:     100,
+		FieldPath:  "tokenCount",
+		Op:         OpBetween,
+		Value:      100,
 		UpperBound: 500,
 	}
 
@@ -620,9 +620,9 @@ func TestFieldExtractor_ProtocolEvent(t *testing.T) {
 		Category:    "protocol",
 		Subcategory: "tool_call",
 		Fields: map[string]interface{}{
-			"toolName":     "read_file",
-			"arguments":    `{"path": "/etc/passwd"}`,
-			"requestSize":  int64(256),
+			"toolName":    "read_file",
+			"arguments":   `{"path": "/etc/passwd"}`,
+			"requestSize": int64(256),
 		},
 	}
 

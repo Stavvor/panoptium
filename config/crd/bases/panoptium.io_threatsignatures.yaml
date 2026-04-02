@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
-  name: panoptiumthreatsignatures.panoptium.io
+  name: threatsignatures.panoptium.io
 spec:
   group: panoptium.io
   names:
-    kind: PanoptiumThreatSignature
-    listKind: PanoptiumThreatSignatureList
-    plural: panoptiumthreatsignatures
-    singular: panoptiumthreatsignature
+    kind: ThreatSignature
+    listKind: ThreatSignatureList
+    plural: threatsignatures
+    singular: threatsignature
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -38,7 +38,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          PanoptiumThreatSignature is the Schema for the panoptiumthreatsignatures API.
+          ThreatSignature is the Schema for the threatsignatures API.
           It defines threat detection patterns that identify specific attack techniques
           or suspicious behaviors in monitored AI agent traffic. Signatures are cluster-scoped
           and consumed by protocol parsers via the ThreatMatcher interface.

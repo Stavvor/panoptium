@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
-  name: panoptiumpolicies.panoptium.io
+  name: agentpolicies.panoptium.io
 spec:
   group: panoptium.io
   names:
-    kind: PanoptiumPolicy
-    listKind: PanoptiumPolicyList
-    plural: panoptiumpolicies
-    singular: panoptiumpolicy
+    kind: AgentPolicy
+    listKind: AgentPolicyList
+    plural: agentpolicies
+    singular: agentpolicy
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -42,7 +42,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          PanoptiumPolicy is the Schema for the panoptiumpolicies API.
+          AgentPolicy is the Schema for the agentpolicies API.
           It defines namespace-scoped security policies with trigger-predicate-action rules
           for monitoring and controlling AI agent behavior within Kubernetes.
         properties:
@@ -88,7 +88,7 @@ spec:
                   by this policy.
                 items:
                   description: PolicyRule defines a single trigger-predicate-action
-                    rule within a PanoptiumPolicy.
+                    rule within an AgentPolicy.
                   properties:
                     action:
                       description: Action defines the response to take when the rule
@@ -146,6 +146,28 @@ spec:
                       - HIGH
                       - CRITICAL
                       type: string
+                    threatSignatures:
+                      description: |-
+                        ThreatSignatures optionally constrains this rule to fire only when a
+                        threat signature matching these criteria is detected.
+                      properties:
+                        categories:
+                          description: Categories matches signatures by attack category.
+                          items:
+                            type: string
+                          type: array
+                        names:
+                          description: Names matches specific threat signatures by
+                            name.
+                          items:
+                            type: string
+                          type: array
+                        severities:
+                          description: Severities matches signatures by severity level.
+                          items:
+                            type: string
+                          type: array
+                      type: object
                     trigger:
                       description: Trigger defines the event that activates this rule.
                       properties:

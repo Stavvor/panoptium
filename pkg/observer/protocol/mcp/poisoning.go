@@ -48,7 +48,7 @@ type PoisoningResult struct {
 
 // ToolPoisoningDetector analyzes MCP tool descriptions for poisoning indicators
 // by delegating to CRD-driven threat signatures via the ThreatMatcher interface.
-// All detection logic is defined by PanoptiumThreatSignature CRDs; there are no
+// All detection logic is defined by ThreatSignature CRDs; there are no
 // hardcoded patterns.
 type ToolPoisoningDetector struct {
 	sensitivity string

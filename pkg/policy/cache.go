@@ -73,9 +73,9 @@ func (c *PolicyCache) GetPolicies() []*CompiledPolicy {
 	return c.snapshot
 }
 
-// OnAdd compiles and adds a new PanoptiumPolicy to the cache.
+// OnAdd compiles and adds a new AgentPolicy to the cache.
 // Returns an error if compilation fails; the cache is not modified on error.
-func (c *PolicyCache) OnAdd(pol *v1alpha1.PanoptiumPolicy) error {
+func (c *PolicyCache) OnAdd(pol *v1alpha1.AgentPolicy) error {
 	compiled, err := c.compiler.Compile(pol)
 	if err != nil {
 		return fmt.Errorf("compile policy %s/%s: %w", pol.Namespace, pol.Name, err)
@@ -91,9 +91,9 @@ func (c *PolicyCache) OnAdd(pol *v1alpha1.PanoptiumPolicy) error {
 	return nil
 }
 
-// OnAddCluster compiles and adds a ClusterPanoptiumPolicy to the cache.
+// OnAddCluster compiles and adds a AgentClusterPolicy to the cache.
 // Returns an error if compilation fails; the cache is not modified on error.
-func (c *PolicyCache) OnAddCluster(pol *v1alpha1.ClusterPanoptiumPolicy) error {
+func (c *PolicyCache) OnAddCluster(pol *v1alpha1.AgentClusterPolicy) error {
 	compiled, err := c.compiler.CompileCluster(pol)
 	if err != nil {
 		return fmt.Errorf("compile cluster policy %s: %w", pol.Name, err)
@@ -112,7 +112,7 @@ func (c *PolicyCache) OnAddCluster(pol *v1alpha1.ClusterPanoptiumPolicy) error {
 // OnUpdate recompiles a policy that has changed. Only the changed policy is
 // recompiled; other policies in the cache are unaffected.
 // Returns an error if recompilation fails; the cache retains the old version.
-func (c *PolicyCache) OnUpdate(oldPol, newPol *v1alpha1.PanoptiumPolicy) error {
+func (c *PolicyCache) OnUpdate(oldPol, newPol *v1alpha1.AgentPolicy) error {
 	compiled, err := c.compiler.Compile(newPol)
 	if err != nil {
 		return fmt.Errorf("recompile policy %s/%s: %w", newPol.Namespace, newPol.Name, err)
@@ -134,7 +134,7 @@ func (c *PolicyCache) OnUpdate(oldPol, newPol *v1alpha1.PanoptiumPolicy) error {
 }
 
 // OnDelete removes a policy from the cache.
-func (c *PolicyCache) OnDelete(pol *v1alpha1.PanoptiumPolicy) error {
+func (c *PolicyCache) OnDelete(pol *v1alpha1.AgentPolicy) error {
 	key := policyKey(pol.Namespace, pol.Name)
 
 	c.mu.Lock()
@@ -151,8 +151,8 @@ func (c *PolicyCache) OnDelete(pol *v1alpha1.PanoptiumPolicy) error {
 	return nil
 }
 
-// OnDeleteCluster removes a ClusterPanoptiumPolicy from the cache.
-func (c *PolicyCache) OnDeleteCluster(pol *v1alpha1.ClusterPanoptiumPolicy) error {
+// OnDeleteCluster removes a AgentClusterPolicy from the cache.
+func (c *PolicyCache) OnDeleteCluster(pol *v1alpha1.AgentClusterPolicy) error {
 	key := policyKey("", pol.Name)
 
 	c.mu.Lock()

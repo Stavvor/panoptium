@@ -42,7 +42,7 @@ type PriorityConflict struct {
 
 // SortPoliciesByPriority sorts policies in descending order by priority.
 // Higher priority policies appear first in the slice.
-func SortPoliciesByPriority(policies []panoptiumiov1alpha1.PanoptiumPolicy) {
+func SortPoliciesByPriority(policies []panoptiumiov1alpha1.AgentPolicy) {
 	sort.Slice(policies, func(i, j int) bool {
 		return policies[i].Spec.Priority > policies[j].Spec.Priority
 	})
@@ -50,7 +50,7 @@ func SortPoliciesByPriority(policies []panoptiumiov1alpha1.PanoptiumPolicy) {
 
 // DetectPriorityConflicts identifies policies with the same priority and
 // overlapping target selectors. Returns a list of conflicts found.
-func DetectPriorityConflicts(policies []panoptiumiov1alpha1.PanoptiumPolicy) []PriorityConflict {
+func DetectPriorityConflicts(policies []panoptiumiov1alpha1.AgentPolicy) []PriorityConflict {
 	var conflicts []PriorityConflict
 
 	for i := 0; i < len(policies); i++ {

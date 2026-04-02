@@ -38,11 +38,11 @@ panoptium_extproc_active_streams 0
 `
 
 	tests := []struct {
-		name       string
-		metric     string
-		labels     map[string]string
-		wantValue  float64
-		wantFound  bool
+		name      string
+		metric    string
+		labels    map[string]string
+		wantValue float64
+		wantFound bool
 	}{
 		{
 			name:      "exact label match",

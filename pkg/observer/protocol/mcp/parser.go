@@ -86,12 +86,12 @@ func (p *MCPParser) lookupAndRemovePending(id string) (string, bool) {
 
 // jsonrpcMessage is the internal JSON-RPC 2.0 message structure for deserialization.
 type jsonrpcMessage struct {
-	JSONRPC string           `json:"jsonrpc"`
-	Method  string           `json:"method"`
-	ID      json.RawMessage  `json:"id"`
-	Params  json.RawMessage  `json:"params"`
-	Result  json.RawMessage  `json:"result"`
-	Error   *jsonrpcError    `json:"error"`
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	ID      json.RawMessage `json:"id"`
+	Params  json.RawMessage `json:"params"`
+	Result  json.RawMessage `json:"result"`
+	Error   *jsonrpcError   `json:"error"`
 }
 
 // jsonrpcError represents a JSON-RPC 2.0 error object.
@@ -102,7 +102,7 @@ type jsonrpcError struct {
 
 // initializeParams holds the parsed params of an initialize request.
 type initializeParams struct {
-	ProtocolVersion string `json:"protocolVersion"`
+	ProtocolVersion string      `json:"protocolVersion"`
 	Capabilities    interface{} `json:"capabilities"`
 	ClientInfo      struct {
 		Name    string `json:"name"`

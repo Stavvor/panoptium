@@ -33,32 +33,32 @@ import (
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 )
 
-// PanoptiumQuarantineReconciler reconciles a PanoptiumQuarantine object.
+// AgentQuarantineReconciler reconciles a AgentQuarantine object.
 // It manages the quarantine lifecycle including finalizer-based cleanup,
 // containment status tracking, and auto-release after TTL expiry.
-type PanoptiumQuarantineReconciler struct {
+type AgentQuarantineReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 }
 
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumquarantines,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumquarantines/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumquarantines/finalizers,verbs=update
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentquarantines,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentquarantines/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentquarantines/finalizers,verbs=update
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;list;watch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 
-// Reconcile handles reconciliation for PanoptiumQuarantine resources.
-func (r *PanoptiumQuarantineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// Reconcile handles reconciliation for AgentQuarantine resources.
+func (r *AgentQuarantineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	quarantine := &panoptiumiov1alpha1.PanoptiumQuarantine{}
+	quarantine := &panoptiumiov1alpha1.AgentQuarantine{}
 	if err := r.Get(ctx, req.NamespacedName, quarantine); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	logger.Info("Reconciling PanoptiumQuarantine",
+	logger.Info("Reconciling AgentQuarantine",
 		"name", quarantine.Name,
 		"targetPod", quarantine.Spec.TargetPod,
 		"containmentLevel", quarantine.Spec.ContainmentLevel,
@@ -91,6 +91,7 @@ func (r *PanoptiumQuarantineReconciler) Reconcile(ctx context.Context, req ctrl.
 		if err := r.Update(ctx, quarantine); err != nil {
 			return ctrl.Result{}, err
 		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Update status
@@ -184,7 +185,7 @@ func (r *PanoptiumQuarantineReconciler) Reconcile(ctx context.Context, req ctrl.
 	})
 
 	if err := r.Status().Update(ctx, quarantine); err != nil {
-		logger.Error(err, "Failed to update PanoptiumQuarantine status")
+		logger.Error(err, "Failed to update AgentQuarantine status")
 		return ctrl.Result{}, err
 	}
 
@@ -192,7 +193,7 @@ func (r *PanoptiumQuarantineReconciler) Reconcile(ctx context.Context, req ctrl.
 }
 
 // cleanupQuarantine removes NetworkPolicies and other resources created by this quarantine.
-func (r *PanoptiumQuarantineReconciler) cleanupQuarantine(ctx context.Context, quarantine *panoptiumiov1alpha1.PanoptiumQuarantine) error {
+func (r *AgentQuarantineReconciler) cleanupQuarantine(ctx context.Context, quarantine *panoptiumiov1alpha1.AgentQuarantine) error {
 	logger := log.FromContext(ctx)
 
 	// Clean up NetworkPolicies listed in status
@@ -212,8 +213,8 @@ func (r *PanoptiumQuarantineReconciler) cleanupQuarantine(ctx context.Context, q
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *PanoptiumQuarantineReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AgentQuarantineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&panoptiumiov1alpha1.PanoptiumQuarantine{}).
+		For(&panoptiumiov1alpha1.AgentQuarantine{}).
 		Complete(r)
 }

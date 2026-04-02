@@ -10,9 +10,9 @@ webhooks:
     service:
       name: panoptium-webhook-service
       namespace: system
-      path: /validate-panoptium-io-v1alpha1-panoptiumpolicy
+      path: /validate-panoptium-io-v1alpha1-agentpolicy
   failurePolicy: Fail
-  name: vpanoptiumpolicy.kb.io
+  name: vagentpolicy.kb.io
   rules:
   - apiGroups:
     - panoptium.io
@@ -22,5 +22,25 @@ webhooks:
     - CREATE
     - UPDATE
     resources:
-    - panoptiumpolicies
+    - agentpolicies
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: panoptium-webhook-service
+      namespace: system
+      path: /validate-panoptium-io-v1alpha1-threatsignature
+  failurePolicy: Fail
+  name: vthreatsignature.panoptium.io
+  rules:
+  - apiGroups:
+    - panoptium.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - threatsignatures
   sideEffects: None

@@ -8,18 +8,32 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "panoptium.fullname" . }}-webhook-cert
 webhooks:
-  - name: vpanoptiumpolicy.panoptium.io
+  - name: vagentpolicy.panoptium.io
     admissionReviewVersions: [v1]
     clientConfig:
       service:
         name: {{ include "panoptium.fullname" . }}-webhook
         namespace: {{ .Release.Namespace }}
-        path: /validate-panoptium-io-v1alpha1-panoptiumpolicy
+        path: /validate-panoptium-io-v1alpha1-agentpolicy
     failurePolicy: Fail
     rules:
       - apiGroups: [panoptium.io]
         apiVersions: [v1alpha1]
         operations: [CREATE, UPDATE]
-        resources: [panoptiumpolicies]
+        resources: [agentpolicies]
+    sideEffects: None
+  - name: vthreatsignature.panoptium.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service:
+        name: {{ include "panoptium.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-panoptium-io-v1alpha1-threatsignature
+    failurePolicy: Fail
+    rules:
+      - apiGroups: [panoptium.io]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE]
+        resources: [threatsignatures]
     sideEffects: None
 {{- end }}

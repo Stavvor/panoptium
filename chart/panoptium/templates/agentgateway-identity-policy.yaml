@@ -18,8 +18,10 @@ spec:
     kind: Gateway
     name: {{ .Values.gateway.identityPolicy.gatewayName | default "agentgateway" }}
   traffic:
+    phase: PreRouting
     transformation:
       request:
         set:
-          x-forwarded-for: source.address
+        - name: x-forwarded-for
+          value: source.address
 {{- end }}

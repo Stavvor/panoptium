@@ -43,11 +43,11 @@ func TestTemporalSequenceDetector_PrecededBy_WithinDuration(t *testing.T) {
 
 	// Create eval: event B must be precededBy event A (kernel.process_exec) within 5s
 	eval := &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "process_exec",
-		Window:           5 * time.Second,
-		SessionField:     "agentID",
+		Window:                5 * time.Second,
+		SessionField:          "agentID",
 	}
 
 	// Event B arrives within window
@@ -88,11 +88,11 @@ func TestTemporalSequenceDetector_PrecededBy_OutsideDuration(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	eval := &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "process_exec",
-		Window:           50 * time.Millisecond,
-		SessionField:     "agentID",
+		Window:                50 * time.Millisecond,
+		SessionField:          "agentID",
 	}
 
 	eventB := &policy.PolicyEvent{
@@ -128,11 +128,11 @@ func TestTemporalSequenceDetector_IsolatedSessions(t *testing.T) {
 	det.RecordEvent("agent-1", eventA)
 
 	eval := &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "process_exec",
-		Window:           5 * time.Second,
-		SessionField:     "agentID",
+		Window:                5 * time.Second,
+		SessionField:          "agentID",
 	}
 
 	// Event B for agent-2 should NOT match (isolated session)
@@ -200,20 +200,20 @@ func TestTemporalSequenceDetector_MultiStepSequence(t *testing.T) {
 
 	// Evaluator for: C must be precededBy B (file_write) within 5s
 	evalBC := &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "file_write",
-		Window:           5 * time.Second,
-		SessionField:     "agentID",
+		Window:                5 * time.Second,
+		SessionField:          "agentID",
 	}
 
 	// Evaluator for: C must also be preceded by A (process_exec) within 5s
 	evalAC := &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "process_exec",
-		Window:           5 * time.Second,
-		SessionField:     "agentID",
+		Window:                5 * time.Second,
+		SessionField:          "agentID",
 	}
 
 	eventC := &policy.PolicyEvent{
@@ -264,11 +264,11 @@ func TestTemporalSequenceDetector_GarbageCollection(t *testing.T) {
 
 	// Verify events were cleaned up by checking with an evaluator
 	eval := &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "process_exec",
-		Window:           5 * time.Second, // large window, but events should be gone
-		SessionField:     "agentID",
+		Window:                5 * time.Second, // large window, but events should be gone
+		SessionField:          "agentID",
 	}
 
 	eventB := &policy.PolicyEvent{
@@ -331,11 +331,11 @@ func TestTemporalSequenceDetector_ConcurrentAccess(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		eval := &TemporalSequenceEvaluator{
-			Detector:         det,
+			Detector:              det,
 			PrecededByCategory:    "kernel",
 			PrecededBySubcategory: "process_exec",
-			Window:           5 * time.Second,
-			SessionField:     "agentID",
+			Window:                5 * time.Second,
+			SessionField:          "agentID",
 		}
 		for i := 0; i < 50; i++ {
 			ev := &policy.PolicyEvent{
@@ -358,11 +358,11 @@ func TestTemporalSequenceEvaluator_MissingSessionField(t *testing.T) {
 	det := NewTemporalSequenceDetector()
 
 	eval := &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "process_exec",
-		Window:           5 * time.Second,
-		SessionField:     "agentID",
+		Window:                5 * time.Second,
+		SessionField:          "agentID",
 	}
 
 	event := &policy.PolicyEvent{
@@ -384,11 +384,11 @@ func TestTemporalSequenceEvaluator_NoEventsRecorded(t *testing.T) {
 	det := NewTemporalSequenceDetector()
 
 	eval := &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "process_exec",
-		Window:           5 * time.Second,
-		SessionField:     "agentID",
+		Window:                5 * time.Second,
+		SessionField:          "agentID",
 	}
 
 	event := &policy.PolicyEvent{
@@ -411,10 +411,10 @@ func TestTemporalSequenceEvaluator_NoEventsRecorded(t *testing.T) {
 func TestTemporalSequenceEvaluator_ImplementsInterface(t *testing.T) {
 	det := NewTemporalSequenceDetector()
 	var _ PredicateEvaluator = &TemporalSequenceEvaluator{
-		Detector:         det,
+		Detector:              det,
 		PrecededByCategory:    "kernel",
 		PrecededBySubcategory: "process_exec",
-		Window:           5 * time.Second,
-		SessionField:     "agentID",
+		Window:                5 * time.Second,
+		SessionField:          "agentID",
 	}
 }

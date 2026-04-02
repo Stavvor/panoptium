@@ -94,7 +94,7 @@ type PodCacheInformer struct {
 
 // NewPodCacheInformer creates a new PodCacheInformer that watches all pods
 // across all namespaces and keeps the PodCache in sync. Monitoring scope is
-// determined purely by policy definitions (PanoptiumPolicy / ClusterPanoptiumPolicy),
+// determined purely by policy definitions (AgentPolicy / AgentClusterPolicy),
 // not by pod labels. At ~1-2KB per PodInfo entry, watching all pods is
 // acceptable even on large clusters (10,000 pods = 10-20MB).
 func NewPodCacheInformer(client kubernetes.Interface, podCache *PodCache) *PodCacheInformer {

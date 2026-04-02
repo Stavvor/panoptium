@@ -4,14 +4,14 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.4
-  name: panoptiumquarantines.panoptium.io
+  name: agentquarantines.panoptium.io
 spec:
   group: panoptium.io
   names:
-    kind: PanoptiumQuarantine
-    listKind: PanoptiumQuarantineList
-    plural: panoptiumquarantines
-    singular: panoptiumquarantine
+    kind: AgentQuarantine
+    listKind: AgentQuarantineList
+    plural: agentquarantines
+    singular: agentquarantine
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -38,7 +38,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          PanoptiumQuarantine is the Schema for the panoptiumquarantines API.
+          AgentQuarantine is the Schema for the agentquarantines API.
           It represents a containment action applied to a pod suspected of malicious
           or anomalous behavior. The quarantine includes graduated containment levels,
           resolution policies, and forensic snapshot configuration.
@@ -131,11 +131,11 @@ spec:
                 minLength: 1
                 type: string
               triggeringPolicy:
-                description: TriggeringPolicy is the name of the PanoptiumPolicy that
+                description: TriggeringPolicy is the name of the AgentPolicy that
                   triggered this quarantine.
                 type: string
               triggeringSignature:
-                description: TriggeringSignature is the name of the PanoptiumThreatSignature
+                description: TriggeringSignature is the name of the ThreatSignature
                   that matched.
                 type: string
             required:

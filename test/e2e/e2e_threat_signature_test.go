@@ -75,10 +75,10 @@ var _ = Describe("ThreatSignature CRD Lifecycle E2E", Label("e2e-threat-sig"), O
 	// -------------------------------------------------------------------
 	Context("TS-1: Valid ThreatSignature CRD Lifecycle", func() {
 
-		It("should create a valid PanoptiumThreatSignature and reach Ready=True", func() {
+		It("should create a valid ThreatSignature and reach Ready=True", func() {
 			sigName := uniqueName("ts1-valid")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -94,11 +94,11 @@ spec:
         target: tool_description
 `, sigName)
 
-			By("applying a valid PanoptiumThreatSignature resource")
+			By("applying a valid ThreatSignature resource")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(yaml)
 			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to apply PanoptiumThreatSignature")
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply ThreatSignature")
 
 			DeferCleanup(func() {
 				cmd := exec.Command("kubectl", "delete", "panoptiumthreatsignature", sigName,
@@ -110,10 +110,10 @@ spec:
 			waitForThreatSignatureReady(sigName, 2*time.Minute)
 		})
 
-		It("should delete a PanoptiumThreatSignature and verify resource is fully removed", func() {
+		It("should delete a ThreatSignature and verify resource is fully removed", func() {
 			sigName := uniqueName("ts1-delete")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -129,33 +129,33 @@ spec:
         target: message_content
 `, sigName)
 
-			By("applying a PanoptiumThreatSignature resource")
+			By("applying a ThreatSignature resource")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(yaml)
 			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to apply PanoptiumThreatSignature")
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply ThreatSignature")
 
 			By("waiting for Ready=True status condition")
 			waitForThreatSignatureReady(sigName, 2*time.Minute)
 
-			By("deleting the PanoptiumThreatSignature resource")
+			By("deleting the ThreatSignature resource")
 			cmd = exec.Command("kubectl", "delete", "panoptiumthreatsignature", sigName)
 			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to delete PanoptiumThreatSignature")
+			Expect(err).NotTo(HaveOccurred(), "Failed to delete ThreatSignature")
 
 			By("waiting for the resource to be fully removed")
 			verifyGone := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", sigName)
 				_, err := utils.Run(cmd)
-				g.Expect(err).To(HaveOccurred(), "PanoptiumThreatSignature should no longer exist")
+				g.Expect(err).To(HaveOccurred(), "ThreatSignature should no longer exist")
 			}
 			Eventually(verifyGone, 2*time.Minute, 5*time.Second).Should(Succeed())
 		})
 
-		It("should update a PanoptiumThreatSignature regex and reconcile to Ready=True", func() {
+		It("should update a ThreatSignature regex and reconcile to Ready=True", func() {
 			sigName := uniqueName("ts1-update")
 			originalYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -171,7 +171,7 @@ spec:
         target: tool_description
 `, sigName)
 
-			By("applying original PanoptiumThreatSignature")
+			By("applying original ThreatSignature")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(originalYAML)
 			_, err := utils.Run(cmd)
@@ -190,7 +190,7 @@ spec:
 			originalGen := getThreatSignatureObservedGeneration(sigName)
 
 			updatedYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -206,11 +206,11 @@ spec:
         target: tool_description
 `, sigName)
 
-			By("updating the PanoptiumThreatSignature with new regex")
+			By("updating the ThreatSignature with new regex")
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(updatedYAML)
 			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to update PanoptiumThreatSignature")
+			Expect(err).NotTo(HaveOccurred(), "Failed to update ThreatSignature")
 
 			By("waiting for Ready=True with updated observedGeneration")
 			verifyUpdated := func(g Gomega) {
@@ -239,7 +239,7 @@ spec:
 			// the controller sets Ready=False with CompilationFailed reason.
 			sigName := uniqueName("ts2-bad-regex")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -288,7 +288,7 @@ spec:
 		It("should reject a ThreatSignature with invalid severity at CRD schema level", func() {
 			sigName := uniqueName("ts2-bad-severity")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -317,7 +317,7 @@ spec:
 		It("should reject a ThreatSignature with invalid target at CRD schema level", func() {
 			sigName := uniqueName("ts2-bad-target")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -351,16 +351,7 @@ spec:
 
 var _ = Describe("Default Helm ThreatSignature E2E", Label("e2e-threat-sig"), Ordered, func() {
 
-	BeforeAll(func() {
-		By("checking if the operator was deployed via Helm with threat signatures enabled")
-		cmd := exec.Command("helm", "list", "-n", namespace, "-o", "json")
-		output, err := utils.Run(cmd)
-		if err != nil || !strings.Contains(output, "panoptium") {
-			Skip("operator not deployed via Helm")
-		}
-	})
-
-	// expectedDefaultSignatures lists all default PanoptiumThreatSignature resources
+	// expectedDefaultSignatures lists all default ThreatSignature resources
 	// deployed by the Helm chart (chart/panoptium/templates/threat-signatures/).
 	var expectedDefaultSignatures = []string{
 		"mcp-ignore-instructions",
@@ -384,9 +375,51 @@ var _ = Describe("Default Helm ThreatSignature E2E", Label("e2e-threat-sig"), Or
 		"role_confusion",
 	}
 
+	// renderedSignatures holds the rendered YAML for cleanup in DeferCleanup.
+	var renderedSignatures string
+
+	BeforeAll(func() {
+		By("rendering and applying default threat signatures from Helm chart")
+		// Use helm template to render the threat-signatures templates,
+		// so the test works regardless of whether the operator was deployed via Helm or kustomize.
+		cmd := exec.Command("helm", "template", "panoptium", "chart/panoptium/",
+			"--set", "threatSignatures.enabled=true",
+			"--show-only", "templates/threat-signatures/ignore-instructions.yaml",
+			"--show-only", "templates/threat-signatures/delimiter-injection.yaml",
+			"--show-only", "templates/threat-signatures/instruction-override.yaml",
+			"--show-only", "templates/threat-signatures/indirect-prompt-injection.yaml",
+			"--show-only", "templates/threat-signatures/system-prompt-reference.yaml",
+			"--show-only", "templates/threat-signatures/role-confusion.yaml",
+			"--show-only", "templates/threat-signatures/tool-shadowing.yaml",
+			"--show-only", "templates/threat-signatures/output-exfiltration.yaml",
+			"--show-only", "templates/threat-signatures/obfuscated-payload.yaml",
+		)
+		rendered, err := utils.Run(cmd)
+		if err != nil {
+			Skip(fmt.Sprintf("failed to render Helm chart: %v", err))
+		}
+		renderedSignatures = rendered
+
+		applyCmd := exec.Command("kubectl", "apply", "-f", "-")
+		applyCmd.Stdin = strings.NewReader(renderedSignatures)
+		_, err = utils.Run(applyCmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to apply rendered default threat signatures")
+
+		DeferCleanup(func() {
+			deleteCmd := exec.Command("kubectl", "delete", "-f", "-", "--ignore-not-found=true")
+			deleteCmd.Stdin = strings.NewReader(renderedSignatures)
+			_, _ = utils.Run(deleteCmd)
+		})
+
+		By("waiting for operator to reconcile default signatures")
+		for _, sigName := range expectedDefaultSignatures {
+			waitForThreatSignatureReady(sigName, 2*time.Minute)
+		}
+	})
+
 	Context("TS-3: Default ThreatSignature Resources", func() {
 
-		It("should have all default PanoptiumThreatSignature resources deployed", func() {
+		It("should have all default ThreatSignature resources deployed", func() {
 			By("verifying all expected default signatures exist")
 			for _, sigName := range expectedDefaultSignatures {
 				cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", sigName)
@@ -411,36 +444,28 @@ var _ = Describe("Default Helm ThreatSignature E2E", Label("e2e-threat-sig"), Or
 			}
 		})
 
-		It("should have all default signatures carrying panoptium.io/managed-by=helm label", func() {
-			By("verifying each default signature has the managed-by label")
-			for _, sigName := range expectedDefaultSignatures {
-				cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", sigName,
-					"-o", "jsonpath={.metadata.labels.panoptium\\.io/managed-by}")
-				output, err := utils.Run(cmd)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(output).To(Equal("helm"),
-					fmt.Sprintf("Default signature %q should have panoptium.io/managed-by=helm", sigName))
-			}
+		It("should have Helm chart templates including panoptium.io/managed-by=helm label", func() {
+			By("verifying the rendered chart YAML contains the managed-by label")
+			Expect(renderedSignatures).To(ContainSubstring("panoptium.io/managed-by: helm"),
+				"Helm chart threat-signature templates should include panoptium.io/managed-by: helm label")
 		})
 
 		It("should cover all expected attack categories", func() {
-			By("listing all default signature categories")
-			cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature",
-				"-l", "panoptium.io/managed-by=helm",
-				"-o", "jsonpath={.items[*].spec.category}")
-			output, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
-
-			categories := strings.Fields(output)
-			for _, expected := range expectedCategories {
-				found := false
-				for _, actual := range categories {
-					if actual == expected {
-						found = true
-						break
-					}
+			By("collecting categories from each default signature")
+			categories := make(map[string]bool)
+			for _, sigName := range expectedDefaultSignatures {
+				cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", sigName,
+					"-o", "jsonpath={.spec.category}")
+				output, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred(),
+					fmt.Sprintf("Failed to get category for %q", sigName))
+				if cat := strings.TrimSpace(output); cat != "" {
+					categories[cat] = true
 				}
-				Expect(found).To(BeTrue(),
+			}
+
+			for _, expected := range expectedCategories {
+				Expect(categories).To(HaveKey(expected),
 					fmt.Sprintf("Expected category %q not found among default signatures. Found: %v", expected, categories))
 			}
 		})
@@ -489,7 +514,7 @@ var _ = Describe("ThreatSignature Hot-Reload E2E", Label("e2e-threat-sig"), Orde
 		It("should reconcile a new ThreatSignature and emit Kubernetes event on compilation", func() {
 			sigName := uniqueName("ts4-hotreload")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -505,7 +530,7 @@ spec:
         target: tool_description
 `, sigName)
 
-			By("applying a new PanoptiumThreatSignature")
+			By("applying a new ThreatSignature")
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(yaml)
 			_, err := utils.Run(cmd)
@@ -534,7 +559,7 @@ spec:
 		It("should remove ThreatSignature from cluster on deletion", func() {
 			sigName := uniqueName("ts4-delete")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -574,7 +599,7 @@ spec:
 		It("should reconcile updated regex and reflect new compiledPatterns count", func() {
 			sigName := uniqueName("ts4-update")
 			originalYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -607,7 +632,7 @@ spec:
 			originalGen := getThreatSignatureObservedGeneration(sigName)
 
 			updatedYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -656,7 +681,7 @@ spec:
 })
 
 // ---------------------------------------------------------------------------
-// PanoptiumPolicy Integration with ThreatSignatures E2E Tests
+// AgentPolicy Integration with ThreatSignatures E2E Tests
 // ---------------------------------------------------------------------------
 
 var _ = Describe("ThreatSignature Policy Integration E2E", Label("e2e-threat-sig"), Ordered, func() {
@@ -690,17 +715,17 @@ var _ = Describe("ThreatSignature Policy Integration E2E", Label("e2e-threat-sig
 	})
 
 	// -------------------------------------------------------------------
-	// TS-5: PanoptiumPolicy with ThreatSignature References
+	// TS-5: AgentPolicy with ThreatSignature References
 	// -------------------------------------------------------------------
 	Context("TS-5: Policy-ThreatSignature Integration", func() {
 
-		It("should create a PanoptiumPolicy referencing a threat signature by name and reach Ready=True", func() {
+		It("should create a AgentPolicy referencing a threat signature by name and reach Ready=True", func() {
 			sigName := uniqueName("ts5-sig-byname")
 			policyName := uniqueName("ts5-pol-byname")
 
 			By("creating a ThreatSignature for the policy to reference")
 			sigYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: %s
 spec:
@@ -727,9 +752,9 @@ spec:
 				_, _ = utils.Run(cmd)
 			})
 
-			By("creating a PanoptiumPolicy that references the signature by name")
+			By("creating a AgentPolicy that references the signature by name")
 			policyYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -755,22 +780,22 @@ spec:
 			cmd = exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(policyYAML)
 			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create PanoptiumPolicy with threatSignatures.names")
+			Expect(err).NotTo(HaveOccurred(), "Failed to create AgentPolicy with threatSignatures.names")
 
 			DeferCleanup(func() {
-				deletePanoptiumPolicy(policyName, namespace)
+				deleteAgentPolicy(policyName, namespace)
 			})
 
 			By("waiting for the policy to reach Ready=True")
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 		})
 
-		It("should create a PanoptiumPolicy matching by category selector and reach Ready=True", func() {
+		It("should create a AgentPolicy matching by category selector and reach Ready=True", func() {
 			policyName := uniqueName("ts5-pol-bycat")
 
-			By("creating a PanoptiumPolicy with threatSignatures.categories selector")
+			By("creating a AgentPolicy with threatSignatures.categories selector")
 			policyYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -796,22 +821,22 @@ spec:
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(policyYAML)
 			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create PanoptiumPolicy with threatSignatures.categories")
+			Expect(err).NotTo(HaveOccurred(), "Failed to create AgentPolicy with threatSignatures.categories")
 
 			DeferCleanup(func() {
-				deletePanoptiumPolicy(policyName, namespace)
+				deleteAgentPolicy(policyName, namespace)
 			})
 
 			By("waiting for the policy to reach Ready=True")
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 		})
 
-		It("should create a PanoptiumPolicy matching by severity selector and reach Ready=True", func() {
+		It("should create a AgentPolicy matching by severity selector and reach Ready=True", func() {
 			policyName := uniqueName("ts5-pol-bysev")
 
-			By("creating a PanoptiumPolicy with threatSignatures.severities selector")
+			By("creating a AgentPolicy with threatSignatures.severities selector")
 			policyYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -838,10 +863,10 @@ spec:
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(policyYAML)
 			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create PanoptiumPolicy with threatSignatures.severities")
+			Expect(err).NotTo(HaveOccurred(), "Failed to create AgentPolicy with threatSignatures.severities")
 
 			DeferCleanup(func() {
-				deletePanoptiumPolicy(policyName, namespace)
+				deleteAgentPolicy(policyName, namespace)
 			})
 
 			By("waiting for the policy to reach Ready=True")
@@ -854,23 +879,23 @@ spec:
 // ThreatSignature Helper Functions
 // ---------------------------------------------------------------------------
 
-// waitForThreatSignatureReady polls the PanoptiumThreatSignature status until
+// waitForThreatSignatureReady polls the ThreatSignature status until
 // Ready=True or the timeout expires.
 func waitForThreatSignatureReady(name string, timeout time.Duration) {
-	By(fmt.Sprintf("waiting for PanoptiumThreatSignature %s to be Ready=True", name))
+	By(fmt.Sprintf("waiting for ThreatSignature %s to be Ready=True", name))
 	verifyReady := func(g Gomega) {
 		cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", name,
 			"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
 		output, err := utils.Run(cmd)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(output).To(Equal("True"),
-			fmt.Sprintf("PanoptiumThreatSignature %s should have Ready=True", name))
+			fmt.Sprintf("ThreatSignature %s should have Ready=True", name))
 	}
 	Eventually(verifyReady, timeout, 5*time.Second).Should(Succeed())
 }
 
 // getThreatSignatureObservedGeneration returns the observedGeneration from the
-// PanoptiumThreatSignature status.
+// ThreatSignature status.
 func getThreatSignatureObservedGeneration(name string) int64 {
 	cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", name,
 		"-o", "jsonpath={.status.observedGeneration}")

@@ -181,8 +181,8 @@ func TestSlidingWindowCounter_Cleanup(t *testing.T) {
 func TestRateLimitEvaluator_BelowLimit(t *testing.T) {
 	counter := NewSlidingWindowCounter(1 * time.Second)
 	eval := &RateLimitEvaluator{
-		Counter:     counter,
-		Limit:       5,
+		Counter:      counter,
+		Limit:        5,
 		GroupByField: "agentID",
 	}
 
@@ -212,8 +212,8 @@ func TestRateLimitEvaluator_BelowLimit(t *testing.T) {
 func TestRateLimitEvaluator_AtLimit(t *testing.T) {
 	counter := NewSlidingWindowCounter(1 * time.Second)
 	eval := &RateLimitEvaluator{
-		Counter:     counter,
-		Limit:       3,
+		Counter:      counter,
+		Limit:        3,
 		GroupByField: "agentID",
 	}
 
@@ -243,8 +243,8 @@ func TestRateLimitEvaluator_AtLimit(t *testing.T) {
 func TestRateLimitEvaluator_ExceedsLimit(t *testing.T) {
 	counter := NewSlidingWindowCounter(1 * time.Second)
 	eval := &RateLimitEvaluator{
-		Counter:     counter,
-		Limit:       2,
+		Counter:      counter,
+		Limit:        2,
 		GroupByField: "agentID",
 	}
 
@@ -272,8 +272,8 @@ func TestRateLimitEvaluator_ExceedsLimit(t *testing.T) {
 func TestRateLimitEvaluator_GroupByPartitioning(t *testing.T) {
 	counter := NewSlidingWindowCounter(1 * time.Second)
 	eval := &RateLimitEvaluator{
-		Counter:     counter,
-		Limit:       2,
+		Counter:      counter,
+		Limit:        2,
 		GroupByField: "agentID",
 	}
 
@@ -319,8 +319,8 @@ func TestRateLimitEvaluator_GroupByPartitioning(t *testing.T) {
 func TestRateLimitEvaluator_GroupByToolName(t *testing.T) {
 	counter := NewSlidingWindowCounter(1 * time.Second)
 	eval := &RateLimitEvaluator{
-		Counter:     counter,
-		Limit:       2,
+		Counter:      counter,
+		Limit:        2,
 		GroupByField: "toolName",
 	}
 
@@ -347,8 +347,8 @@ func TestRateLimitEvaluator_GroupByToolName(t *testing.T) {
 func TestRateLimitEvaluator_MissingGroupByField(t *testing.T) {
 	counter := NewSlidingWindowCounter(1 * time.Second)
 	eval := &RateLimitEvaluator{
-		Counter:     counter,
-		Limit:       2,
+		Counter:      counter,
+		Limit:        2,
 		GroupByField: "agentID",
 	}
 
@@ -372,8 +372,8 @@ func TestRateLimitEvaluator_WindowExpiry(t *testing.T) {
 	window := 100 * time.Millisecond
 	counter := NewSlidingWindowCounter(window)
 	eval := &RateLimitEvaluator{
-		Counter:     counter,
-		Limit:       2,
+		Counter:      counter,
+		Limit:        2,
 		GroupByField: "agentID",
 	}
 
@@ -416,14 +416,14 @@ func TestRateLimitEvaluator_MultipleOverlappingWindows(t *testing.T) {
 	longCounter := NewSlidingWindowCounter(1 * time.Second)
 
 	evalShort := &RateLimitEvaluator{
-		Counter:     shortCounter,
-		Limit:       2,
+		Counter:      shortCounter,
+		Limit:        2,
 		GroupByField: "agentID",
 	}
 
 	evalLong := &RateLimitEvaluator{
-		Counter:     longCounter,
-		Limit:       5,
+		Counter:      longCounter,
+		Limit:        5,
 		GroupByField: "agentID",
 	}
 
@@ -463,8 +463,8 @@ func TestRateLimitEvaluator_MultipleOverlappingWindows(t *testing.T) {
 func TestRateLimitEvaluator_ImplementsInterface(t *testing.T) {
 	counter := NewSlidingWindowCounter(1 * time.Second)
 	var _ PredicateEvaluator = &RateLimitEvaluator{
-		Counter:     counter,
-		Limit:       5,
+		Counter:      counter,
+		Limit:        5,
 		GroupByField: "agentID",
 	}
 }
@@ -472,8 +472,8 @@ func TestRateLimitEvaluator_ImplementsInterface(t *testing.T) {
 func TestRateLimitEvaluator_IncrementAndEvaluate(t *testing.T) {
 	counter := NewSlidingWindowCounter(1 * time.Second)
 	eval := &RateLimitEvaluator{
-		Counter:      counter,
-		Limit:        3,
+		Counter:       counter,
+		Limit:         3,
 		GroupByField:  "agentID",
 		AutoIncrement: true,
 	}

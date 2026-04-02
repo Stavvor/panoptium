@@ -17,7 +17,9 @@ spec:
     kind: Gateway
     name: e2e-gateway
   traffic:
+    phase: PreRouting
     transformation:
       request:
         set:
-          x-forwarded-for: source.address
+        - name: x-forwarded-for
+          value: source.address

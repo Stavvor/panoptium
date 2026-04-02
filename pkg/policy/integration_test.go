@@ -28,12 +28,12 @@ import (
 // --- Integration Tests: Full Pipeline (Compile → Tree → Evaluate) ---
 
 func TestIntegration_FullPipeline_RegexPredicate(t *testing.T) {
-	policy := &v1alpha1.PanoptiumPolicy{
+	policy := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "regex-integration",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -100,12 +100,12 @@ func TestIntegration_FullPipeline_RegexPredicate(t *testing.T) {
 }
 
 func TestIntegration_FullPipeline_GlobPredicate(t *testing.T) {
-	policy := &v1alpha1.PanoptiumPolicy{
+	policy := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "glob-integration",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -153,12 +153,12 @@ func TestIntegration_FullPipeline_GlobPredicate(t *testing.T) {
 }
 
 func TestIntegration_FullPipeline_CIDRPredicate(t *testing.T) {
-	policy := &v1alpha1.PanoptiumPolicy{
+	policy := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "cidr-integration",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -206,12 +206,12 @@ func TestIntegration_FullPipeline_CIDRPredicate(t *testing.T) {
 }
 
 func TestIntegration_FullPipeline_EqualityPredicate(t *testing.T) {
-	policy := &v1alpha1.PanoptiumPolicy{
+	policy := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "equality-integration",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -277,12 +277,12 @@ func TestIntegration_FullPipeline_EqualityPredicate(t *testing.T) {
 // --- Integration Tests: No-Match and Multi-Rule ---
 
 func TestIntegration_FullPipeline_NoMatchDefaultAllow(t *testing.T) {
-	policy := &v1alpha1.PanoptiumPolicy{
+	policy := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "no-match-integration",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -337,12 +337,12 @@ func TestIntegration_FullPipeline_NoMatchDefaultAllow(t *testing.T) {
 }
 
 func TestIntegration_FullPipeline_MultiRuleFirstMatchWins(t *testing.T) {
-	policy := &v1alpha1.PanoptiumPolicy{
+	policy := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "multi-rule-integration",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -429,12 +429,12 @@ func TestIntegration_FullPipeline_MultiRuleFirstMatchWins(t *testing.T) {
 // --- Concurrency Safety Test ---
 
 func TestIntegration_ConcurrencySafety(t *testing.T) {
-	policy := &v1alpha1.PanoptiumPolicy{
+	policy := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "concurrency-test",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,

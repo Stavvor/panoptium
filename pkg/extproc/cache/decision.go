@@ -35,7 +35,7 @@ type CacheTier int
 
 const (
 	// TierUniversal caches decisions that apply globally regardless of
-	// context. Entries are cached until the relevant PanoptiumPolicy is
+	// context. Entries are cached until the relevant AgentPolicy is
 	// updated or the TTL expires.
 	TierUniversal CacheTier = iota
 

@@ -32,11 +32,11 @@ import (
 )
 
 // newTestReconciler creates a reconciler with fake client and test registry.
-func newTestReconciler(objs ...runtime.Object) (*PanoptiumThreatSignatureReconciler, *threat.CompiledSignatureRegistry) {
+func newTestReconciler(objs ...runtime.Object) (*ThreatSignatureReconciler, *threat.CompiledSignatureRegistry) {
 	scheme := runtime.NewScheme()
 	_ = panoptiumiov1alpha1.AddToScheme(scheme)
 
-	cb := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&panoptiumiov1alpha1.PanoptiumThreatSignature{})
+	cb := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&panoptiumiov1alpha1.ThreatSignature{})
 	for _, obj := range objs {
 		cb = cb.WithRuntimeObjects(obj)
 	}
@@ -45,7 +45,7 @@ func newTestReconciler(objs ...runtime.Object) (*PanoptiumThreatSignatureReconci
 	registry := threat.NewCompiledSignatureRegistry()
 	recorder := record.NewFakeRecorder(10)
 
-	return &PanoptiumThreatSignatureReconciler{
+	return &ThreatSignatureReconciler{
 		Client:   client,
 		Scheme:   scheme,
 		Recorder: recorder,
@@ -56,11 +56,11 @@ func newTestReconciler(objs ...runtime.Object) (*PanoptiumThreatSignatureReconci
 // TestReconcile_CompilesRegexOnReconcile verifies that reconciliation compiles
 // regex patterns and adds them to the registry.
 func TestReconcile_CompilesRegexOnReconcile(t *testing.T) {
-	sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+	sig := &panoptiumiov1alpha1.ThreatSignature{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-compile",
 		},
-		Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+		Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 			Protocols:   []string{"mcp"},
 			Category:    "prompt_injection",
 			Severity:    panoptiumiov1alpha1.SeverityHigh,
@@ -116,12 +116,12 @@ func TestReconcile_CompilesRegexOnReconcile(t *testing.T) {
 // TestReconcile_UpdatesRegistryOnUpdate verifies that updating a CRD re-compiles
 // and replaces the signature in the registry.
 func TestReconcile_UpdatesRegistryOnUpdate(t *testing.T) {
-	sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+	sig := &panoptiumiov1alpha1.ThreatSignature{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "test-update",
 			Generation: 1,
 		},
-		Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+		Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 			Protocols:   []string{"mcp"},
 			Category:    "prompt_injection",
 			Severity:    panoptiumiov1alpha1.SeverityHigh,
@@ -159,7 +159,7 @@ func TestReconcile_UpdatesRegistryOnUpdate(t *testing.T) {
 	}
 
 	// Update the signature with a different pattern
-	updatedSig := &panoptiumiov1alpha1.PanoptiumThreatSignature{}
+	updatedSig := &panoptiumiov1alpha1.ThreatSignature{}
 	_ = r.Get(context.Background(), types.NamespacedName{Name: "test-update"}, updatedSig)
 	updatedSig.Spec.Detection.Patterns = []panoptiumiov1alpha1.PatternRule{
 		{
@@ -202,11 +202,11 @@ func TestReconcile_UpdatesRegistryOnUpdate(t *testing.T) {
 // TestReconcile_RemovesFromRegistryOnDelete verifies that deleting a CRD removes
 // the signature from the registry.
 func TestReconcile_RemovesFromRegistryOnDelete(t *testing.T) {
-	sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+	sig := &panoptiumiov1alpha1.ThreatSignature{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-delete",
 		},
-		Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+		Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 			Protocols:   []string{"mcp"},
 			Category:    "prompt_injection",
 			Severity:    panoptiumiov1alpha1.SeverityHigh,
@@ -237,7 +237,7 @@ func TestReconcile_RemovesFromRegistryOnDelete(t *testing.T) {
 	}
 
 	// Delete the CRD
-	existing := &panoptiumiov1alpha1.PanoptiumThreatSignature{}
+	existing := &panoptiumiov1alpha1.ThreatSignature{}
 	_ = r.Get(context.Background(), types.NamespacedName{Name: "test-delete"}, existing)
 	_ = r.Delete(context.Background(), existing)
 
@@ -258,11 +258,11 @@ func TestReconcile_RemovesFromRegistryOnDelete(t *testing.T) {
 // TestReconcile_InvalidRegexSetsCondition verifies that invalid regex sets
 // Ready=False with CompilationFailed reason.
 func TestReconcile_InvalidRegexSetsCondition(t *testing.T) {
-	sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+	sig := &panoptiumiov1alpha1.ThreatSignature{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-bad-regex",
 		},
-		Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+		Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 			Protocols:   []string{"mcp"},
 			Category:    "prompt_injection",
 			Severity:    panoptiumiov1alpha1.SeverityHigh,
@@ -294,7 +294,7 @@ func TestReconcile_InvalidRegexSetsCondition(t *testing.T) {
 	}
 
 	// Verify status condition set to CompilationFailed
-	updated := &panoptiumiov1alpha1.PanoptiumThreatSignature{}
+	updated := &panoptiumiov1alpha1.ThreatSignature{}
 	_ = r.Get(context.Background(), types.NamespacedName{Name: "test-bad-regex"}, updated)
 
 	found := false
@@ -320,11 +320,11 @@ func TestReconcile_HotReloadNewSignature(t *testing.T) {
 	}
 
 	// Create a new signature
-	sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+	sig := &panoptiumiov1alpha1.ThreatSignature{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "hot-reload-test",
 		},
-		Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+		Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 			Protocols:   []string{"mcp"},
 			Category:    "prompt_injection",
 			Severity:    panoptiumiov1alpha1.SeverityCritical,

@@ -28,20 +28,20 @@ import (
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 )
 
-var _ = Describe("PanoptiumAgentProfile Controller", func() {
+var _ = Describe("AgentProfile Controller", func() {
 	const (
 		timeout  = time.Second * 10
 		interval = time.Millisecond * 250
 	)
 
-	Context("When creating a PanoptiumAgentProfile", func() {
+	Context("When creating a AgentProfile", func() {
 		It("Should set Ready condition to True", func() {
-			profile := &panoptiumiov1alpha1.PanoptiumAgentProfile{
+			profile := &panoptiumiov1alpha1.AgentProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-profile-ready",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumAgentProfileSpec{
+				Spec: panoptiumiov1alpha1.AgentProfileSpec{
 					AgentSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "coding-assistant"},
 					},
@@ -56,7 +56,7 @@ var _ = Describe("PanoptiumAgentProfile Controller", func() {
 			Expect(k8sClient.Create(ctx, profile)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-profile-ready", Namespace: "default"}
-			createdProfile := &panoptiumiov1alpha1.PanoptiumAgentProfile{}
+			createdProfile := &panoptiumiov1alpha1.AgentProfile{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdProfile)
@@ -73,12 +73,12 @@ var _ = Describe("PanoptiumAgentProfile Controller", func() {
 		})
 
 		It("Should set Learning condition when learningMode is true", func() {
-			profile := &panoptiumiov1alpha1.PanoptiumAgentProfile{
+			profile := &panoptiumiov1alpha1.AgentProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-profile-learning",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumAgentProfileSpec{
+				Spec: panoptiumiov1alpha1.AgentProfileSpec{
 					AgentSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "learner"},
 					},
@@ -90,7 +90,7 @@ var _ = Describe("PanoptiumAgentProfile Controller", func() {
 			Expect(k8sClient.Create(ctx, profile)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-profile-learning", Namespace: "default"}
-			createdProfile := &panoptiumiov1alpha1.PanoptiumAgentProfile{}
+			createdProfile := &panoptiumiov1alpha1.AgentProfile{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdProfile)
@@ -109,12 +109,12 @@ var _ = Describe("PanoptiumAgentProfile Controller", func() {
 		})
 
 		It("Should update lastBaselineUpdate timestamp", func() {
-			profile := &panoptiumiov1alpha1.PanoptiumAgentProfile{
+			profile := &panoptiumiov1alpha1.AgentProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-profile-timestamp",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumAgentProfileSpec{
+				Spec: panoptiumiov1alpha1.AgentProfileSpec{
 					AgentSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "timestamped"},
 					},
@@ -128,7 +128,7 @@ var _ = Describe("PanoptiumAgentProfile Controller", func() {
 			Expect(k8sClient.Create(ctx, profile)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-profile-timestamp", Namespace: "default"}
-			createdProfile := &panoptiumiov1alpha1.PanoptiumAgentProfile{}
+			createdProfile := &panoptiumiov1alpha1.AgentProfile{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdProfile)
@@ -140,12 +140,12 @@ var _ = Describe("PanoptiumAgentProfile Controller", func() {
 		})
 
 		It("Should handle deletion cleanly", func() {
-			profile := &panoptiumiov1alpha1.PanoptiumAgentProfile{
+			profile := &panoptiumiov1alpha1.AgentProfile{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-profile-delete",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumAgentProfileSpec{
+				Spec: panoptiumiov1alpha1.AgentProfileSpec{
 					AgentSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "deletable"},
 					},
@@ -156,7 +156,7 @@ var _ = Describe("PanoptiumAgentProfile Controller", func() {
 			Expect(k8sClient.Create(ctx, profile)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-profile-delete", Namespace: "default"}
-			createdProfile := &panoptiumiov1alpha1.PanoptiumAgentProfile{}
+			createdProfile := &panoptiumiov1alpha1.AgentProfile{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdProfile)

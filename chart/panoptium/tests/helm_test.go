@@ -72,7 +72,6 @@ func TestHelmTemplate_DefaultValues(t *testing.T) {
 		"kind: Service",
 		"kind: Deployment",
 		"kind: ValidatingWebhookConfiguration",
-		"kind: MutatingWebhookConfiguration",
 	}
 	for _, kind := range requiredKinds {
 		if !strings.Contains(output, kind) {
@@ -91,11 +90,11 @@ func TestHelmTemplate_CRDs(t *testing.T) {
 	output := helmTemplate(t, "--include-crds")
 
 	crds := []string{
-		"panoptiumpolicies.panoptium.io",
-		"clusterpanoptiumpolicies.panoptium.io",
-		"panoptiumagentprofiles.panoptium.io",
-		"panoptiumthreatsignatures.panoptium.io",
-		"panoptiumquarantines.panoptium.io",
+		"agentpolicies.panoptium.io",
+		"agentclusterpolicies.panoptium.io",
+		"agentprofiles.panoptium.io",
+		"threatsignatures.panoptium.io",
+		"agentquarantines.panoptium.io",
 	}
 	for _, crd := range crds {
 		if !strings.Contains(output, crd) {
@@ -111,9 +110,6 @@ func TestHelmTemplate_WebhookDisabled(t *testing.T) {
 
 	if strings.Contains(output, "ValidatingWebhookConfiguration") {
 		t.Error("ValidatingWebhookConfiguration should not be rendered when webhook.enabled=false")
-	}
-	if strings.Contains(output, "MutatingWebhookConfiguration") {
-		t.Error("MutatingWebhookConfiguration should not be rendered when webhook.enabled=false")
 	}
 	if strings.Contains(output, "webhook-service") {
 		t.Error("webhook service should not be rendered when webhook.enabled=false")
@@ -158,11 +154,11 @@ func TestHelmTemplate_RBAC(t *testing.T) {
 	output := helmTemplate(t)
 
 	requiredResources := []string{
-		"panoptiumpolicies",
-		"clusterpanoptiumpolicies",
-		"panoptiumagentprofiles",
-		"panoptiumthreatsignatures",
-		"panoptiumquarantines",
+		"agentpolicies",
+		"agentclusterpolicies",
+		"agentprofiles",
+		"threatsignatures",
+		"agentquarantines",
 		"networkpolicies",
 		"pods",
 		"pods/eviction",
@@ -175,40 +171,19 @@ func TestHelmTemplate_RBAC(t *testing.T) {
 	}
 }
 
-// TestHelmTemplate_MutatingWebhookFailurePolicy verifies the mutating webhook
-// uses failurePolicy=Fail to prevent unmonitored pod creation when webhook is unavailable.
-func TestHelmTemplate_MutatingWebhookFailurePolicy(t *testing.T) {
+// TestHelmTemplate_ValidatingWebhookEntries verifies both validating webhooks
+// (AgentPolicy and ThreatSignature) are present in the rendered template.
+func TestHelmTemplate_ValidatingWebhookEntries(t *testing.T) {
 	output := helmTemplate(t, "--set", "webhook.enabled=true", "--set", "webhook.certManager=true")
 
-	// The failurePolicy must be Fail (not Ignore) to prevent bypassing enrollment
+	if !strings.Contains(output, "vagentpolicy.panoptium.io") {
+		t.Error("ValidatingWebhookConfiguration should include AgentPolicy webhook")
+	}
+	if !strings.Contains(output, "vthreatsignature.panoptium.io") {
+		t.Error("ValidatingWebhookConfiguration should include ThreatSignature webhook")
+	}
 	if !strings.Contains(output, "failurePolicy: Fail") {
-		t.Error("mutating webhook failurePolicy should be Fail, not Ignore")
-	}
-	if strings.Contains(output, "failurePolicy: Ignore") {
-		t.Error("mutating webhook must not use failurePolicy: Ignore (security vulnerability)")
-	}
-}
-
-// TestHelmTemplate_MutatingWebhookOperations verifies the mutating webhook
-// intercepts both CREATE and UPDATE operations on pods.
-func TestHelmTemplate_MutatingWebhookOperations(t *testing.T) {
-	output := helmTemplate(t, "--set", "webhook.enabled=true", "--set", "webhook.certManager=true")
-
-	// Extract the MutatingWebhookConfiguration section specifically
-	mutatingIdx := strings.Index(output, "kind: MutatingWebhookConfiguration")
-	if mutatingIdx < 0 {
-		t.Fatal("MutatingWebhookConfiguration not found in template output")
-	}
-	// Find the next document separator or EOF
-	rest := output[mutatingIdx:]
-	endIdx := strings.Index(rest, "\n---\n")
-	if endIdx > 0 {
-		rest = rest[:endIdx]
-	}
-
-	// Within the MutatingWebhookConfiguration, check that pod operations include UPDATE
-	if !strings.Contains(rest, "operations: [CREATE, UPDATE]") {
-		t.Error("mutating webhook operations for pods should include both CREATE and UPDATE to prevent enrollment bypass via label removal")
+		t.Error("validating webhook failurePolicy should be Fail")
 	}
 }
 

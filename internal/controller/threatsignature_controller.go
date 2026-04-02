@@ -33,26 +33,26 @@ import (
 	"github.com/panoptium/panoptium/pkg/threat"
 )
 
-// PanoptiumThreatSignatureReconciler reconciles a PanoptiumThreatSignature object.
+// ThreatSignatureReconciler reconciles a ThreatSignature object.
 // It validates and compiles signature patterns, manages Ready/Invalid conditions,
 // and updates the in-memory CompiledSignatureRegistry for use by protocol parsers.
-type PanoptiumThreatSignatureReconciler struct {
+type ThreatSignatureReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 	Registry *threat.CompiledSignatureRegistry
 }
 
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumthreatsignatures,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumthreatsignatures/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumthreatsignatures/finalizers,verbs=update
+// +kubebuilder:rbac:groups=panoptium.io,resources=threatsignatures,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=panoptium.io,resources=threatsignatures/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=panoptium.io,resources=threatsignatures/finalizers,verbs=update
 
-// Reconcile handles reconciliation for PanoptiumThreatSignature resources.
+// Reconcile handles reconciliation for ThreatSignature resources.
 // It compiles regex patterns at reconciliation time and updates the in-memory registry.
-func (r *PanoptiumThreatSignatureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ThreatSignatureReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{}
+	sig := &panoptiumiov1alpha1.ThreatSignature{}
 	if err := r.Get(ctx, req.NamespacedName, sig); err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			// Resource deleted — remove from registry
@@ -64,7 +64,7 @@ func (r *PanoptiumThreatSignatureReconciler) Reconcile(ctx context.Context, req 
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Reconciling PanoptiumThreatSignature",
+	logger.Info("Reconciling ThreatSignature",
 		"name", sig.Name,
 		"category", sig.Spec.Category,
 		"severity", sig.Spec.Severity)
@@ -176,7 +176,7 @@ func (r *PanoptiumThreatSignatureReconciler) Reconcile(ctx context.Context, req 
 	})
 
 	if err := r.Status().Update(ctx, sig); err != nil {
-		logger.Error(err, "Failed to update PanoptiumThreatSignature status")
+		logger.Error(err, "Failed to update ThreatSignature status")
 		return ctrl.Result{}, err
 	}
 
@@ -184,8 +184,8 @@ func (r *PanoptiumThreatSignatureReconciler) Reconcile(ctx context.Context, req 
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *PanoptiumThreatSignatureReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ThreatSignatureReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&panoptiumiov1alpha1.PanoptiumThreatSignature{}).
+		For(&panoptiumiov1alpha1.ThreatSignature{}).
 		Complete(r)
 }

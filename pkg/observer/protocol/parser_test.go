@@ -25,20 +25,20 @@ import (
 
 // mockParser is a test double implementing ProtocolParser.
 type mockParser struct {
-	name       string
-	canDetect  bool
-	confidence float32
-	reqResult  *ParsedRequest
-	reqErr     error
-	respResult *ParsedResponse
-	respErr    error
+	name        string
+	canDetect   bool
+	confidence  float32
+	reqResult   *ParsedRequest
+	reqErr      error
+	respResult  *ParsedResponse
+	respErr     error
 	chunkResult *ParsedChunk
-	chunkErr   error
+	chunkErr    error
 
-	detectCalled  int
-	reqCalled     int
-	respCalled    int
-	chunkCalled   int
+	detectCalled int
+	reqCalled    int
+	respCalled   int
+	chunkCalled  int
 }
 
 func newMockParser(name string, canDetect bool, confidence float32) *mockParser {

@@ -1,6 +1,6 @@
 {{- if .Values.threatSignatures.enabled }}
 apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumThreatSignature
+kind: ThreatSignature
 metadata:
   name: mcp-role-confusion
   labels:

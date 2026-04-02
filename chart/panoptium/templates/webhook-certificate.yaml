@@ -1,18 +1,60 @@
 {{- if and .Values.webhook.enabled (not .Values.webhook.certManager) }}
+{{- $fullname := include "panoptium.fullname" . }}
+{{- $svcName := printf "%s-webhook.%s.svc" $fullname .Release.Namespace }}
+{{- $ca := genCA "panoptium-webhook-ca" 3650 }}
+{{- $cert := genSignedCert $svcName nil (list $svcName (printf "%s-webhook.%s.svc.cluster.local" $fullname .Release.Namespace)) 3650 $ca }}
 # Self-signed webhook certificate Secret.
 # For production use, set webhook.certManager=true and install cert-manager.
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "panoptium.fullname" . }}-webhook-cert
+  name: {{ $fullname }}-webhook-cert
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "panoptium.labels" . | nindent 4 }}
 type: kubernetes.io/tls
 data:
-  # Placeholder: inject real certificate data via a pre-install hook or cert-manager.
-  tls.crt: ""
-  tls.key: ""
+  tls.crt: {{ $cert.Cert | b64enc }}
+  tls.key: {{ $cert.Key | b64enc }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ $fullname }}-validating
+  labels:
+    {{- include "panoptium.labels" . | nindent 4 }}
+webhooks:
+  - name: vagentpolicy.panoptium.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service:
+        name: {{ $fullname }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-panoptium-io-v1alpha1-agentpolicy
+      caBundle: {{ $ca.Cert | b64enc }}
+    failurePolicy: Fail
+    rules:
+      - apiGroups: [panoptium.io]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE]
+        resources: [agentpolicies]
+    sideEffects: None
+  - name: vthreatsignature.panoptium.io
+    admissionReviewVersions: [v1]
+    clientConfig:
+      service:
+        name: {{ $fullname }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-panoptium-io-v1alpha1-threatsignature
+      caBundle: {{ $ca.Cert | b64enc }}
+    failurePolicy: Fail
+    rules:
+      - apiGroups: [panoptium.io]
+        apiVersions: [v1alpha1]
+        operations: [CREATE, UPDATE]
+        resources: [threatsignatures]
+    sideEffects: None
 {{- end }}
 {{- if and .Values.webhook.enabled .Values.webhook.certManager }}
 ---

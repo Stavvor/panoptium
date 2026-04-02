@@ -57,14 +57,14 @@ var validTriggerLayers = map[string]map[string]bool{
 		"connection_closed":      true,
 	},
 	"protocol": {
-		"tool_call":           true,
-		"tool_response":       true,
-		"message_send":        true,
-		"message_receive":     true,
-		"task_delegate":       true,
-		"llm_request":         true,
-		"llm_response":        true,
-		"llm_response_chunk":  true,
+		"tool_call":          true,
+		"tool_response":      true,
+		"message_send":       true,
+		"message_receive":    true,
+		"task_delegate":      true,
+		"llm_request":        true,
+		"llm_response":       true,
+		"llm_response_chunk": true,
 	},
 	"llm": {
 		"prompt_submit":      true,
@@ -118,7 +118,7 @@ func (e *CompilationError) Unwrap() error {
 	return e.Cause
 }
 
-// PolicyCompiler converts PanoptiumPolicy CRD specs into optimized CompiledPolicy
+// PolicyCompiler converts AgentPolicy CRD specs into optimized CompiledPolicy
 // intermediate representations with pre-compiled matchers.
 type PolicyCompiler struct{}
 
@@ -127,9 +127,9 @@ func NewPolicyCompiler() *PolicyCompiler {
 	return &PolicyCompiler{}
 }
 
-// Compile converts a PanoptiumPolicy CRD into a CompiledPolicy with pre-compiled
+// Compile converts a AgentPolicy CRD into a CompiledPolicy with pre-compiled
 // regex, glob, and CIDR matchers. Returns a CompilationError for invalid specs.
-func (c *PolicyCompiler) Compile(policy *v1alpha1.PanoptiumPolicy) (*CompiledPolicy, error) {
+func (c *PolicyCompiler) Compile(policy *v1alpha1.AgentPolicy) (*CompiledPolicy, error) {
 	compiled := &CompiledPolicy{
 		Name:            policy.Name,
 		Namespace:       policy.Namespace,
@@ -152,8 +152,8 @@ func (c *PolicyCompiler) Compile(policy *v1alpha1.PanoptiumPolicy) (*CompiledPol
 	return compiled, nil
 }
 
-// CompileCluster converts a ClusterPanoptiumPolicy CRD into a CompiledPolicy.
-func (c *PolicyCompiler) CompileCluster(policy *v1alpha1.ClusterPanoptiumPolicy) (*CompiledPolicy, error) {
+// CompileCluster converts a AgentClusterPolicy CRD into a CompiledPolicy.
+func (c *PolicyCompiler) CompileCluster(policy *v1alpha1.AgentClusterPolicy) (*CompiledPolicy, error) {
 	compiled := &CompiledPolicy{
 		Name:            policy.Name,
 		Namespace:       "",

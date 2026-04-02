@@ -40,7 +40,7 @@ var validTargets = map[string]bool{
 	"body":             true,
 }
 
-// ThreatSignatureValidator validates PanoptiumThreatSignature resources on create and update.
+// ThreatSignatureValidator validates ThreatSignature resources on create and update.
 // It checks regex compilation, CEL expression syntax, enum values, and required fields.
 type ThreatSignatureValidator struct{}
 
@@ -49,36 +49,36 @@ var _ webhook.CustomValidator = &ThreatSignatureValidator{}
 // SetupWebhookWithManager registers the validating webhook with the manager.
 func (v *ThreatSignatureValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&panoptiumiov1alpha1.PanoptiumThreatSignature{}).
+		For(&panoptiumiov1alpha1.ThreatSignature{}).
 		WithValidator(v).
 		Complete()
 }
 
-// ValidateCreate validates a PanoptiumThreatSignature on creation.
+// ValidateCreate validates a ThreatSignature on creation.
 func (v *ThreatSignatureValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	sig, ok := obj.(*panoptiumiov1alpha1.PanoptiumThreatSignature)
+	sig, ok := obj.(*panoptiumiov1alpha1.ThreatSignature)
 	if !ok {
-		return nil, fmt.Errorf("expected PanoptiumThreatSignature but got %T", obj)
+		return nil, fmt.Errorf("expected ThreatSignature but got %T", obj)
 	}
 	return validateThreatSignature(sig)
 }
 
-// ValidateUpdate validates a PanoptiumThreatSignature on update.
+// ValidateUpdate validates a ThreatSignature on update.
 func (v *ThreatSignatureValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	sig, ok := newObj.(*panoptiumiov1alpha1.PanoptiumThreatSignature)
+	sig, ok := newObj.(*panoptiumiov1alpha1.ThreatSignature)
 	if !ok {
-		return nil, fmt.Errorf("expected PanoptiumThreatSignature but got %T", newObj)
+		return nil, fmt.Errorf("expected ThreatSignature but got %T", newObj)
 	}
 	return validateThreatSignature(sig)
 }
 
-// ValidateDelete validates a PanoptiumThreatSignature on deletion (no-op).
+// ValidateDelete validates a ThreatSignature on deletion (no-op).
 func (v *ThreatSignatureValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
-// validateThreatSignature performs all validation checks on a PanoptiumThreatSignature.
-func validateThreatSignature(sig *panoptiumiov1alpha1.PanoptiumThreatSignature) (admission.Warnings, error) {
+// validateThreatSignature performs all validation checks on a ThreatSignature.
+func validateThreatSignature(sig *panoptiumiov1alpha1.ThreatSignature) (admission.Warnings, error) {
 	var allErrs field.ErrorList
 
 	specPath := field.NewPath("spec")

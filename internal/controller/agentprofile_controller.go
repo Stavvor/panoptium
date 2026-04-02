@@ -31,29 +31,29 @@ import (
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 )
 
-// PanoptiumAgentProfileReconciler reconciles a PanoptiumAgentProfile object.
+// AgentProfileReconciler reconciles a AgentProfile object.
 // It manages status conditions (Ready, Learning, BaselineEstablished),
 // tracks baseline health, and counts matching agents.
-type PanoptiumAgentProfileReconciler struct {
+type AgentProfileReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 }
 
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumagentprofiles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumagentprofiles/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=panoptium.io,resources=panoptiumagentprofiles/finalizers,verbs=update
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentprofiles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentprofiles/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=panoptium.io,resources=agentprofiles/finalizers,verbs=update
 
-// Reconcile handles reconciliation for PanoptiumAgentProfile resources.
-func (r *PanoptiumAgentProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+// Reconcile handles reconciliation for AgentProfile resources.
+func (r *AgentProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	profile := &panoptiumiov1alpha1.PanoptiumAgentProfile{}
+	profile := &panoptiumiov1alpha1.AgentProfile{}
 	if err := r.Get(ctx, req.NamespacedName, profile); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	logger.Info("Reconciling PanoptiumAgentProfile", "name", profile.Name, "namespace", profile.Namespace)
+	logger.Info("Reconciling AgentProfile", "name", profile.Name, "namespace", profile.Namespace)
 
 	// Update status
 	profile.Status.ObservedGeneration = profile.Generation
@@ -123,7 +123,7 @@ func (r *PanoptiumAgentProfileReconciler) Reconcile(ctx context.Context, req ctr
 	})
 
 	if err := r.Status().Update(ctx, profile); err != nil {
-		logger.Error(err, "Failed to update PanoptiumAgentProfile status")
+		logger.Error(err, "Failed to update AgentProfile status")
 		return ctrl.Result{}, err
 	}
 
@@ -131,8 +131,8 @@ func (r *PanoptiumAgentProfileReconciler) Reconcile(ctx context.Context, req ctr
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *PanoptiumAgentProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *AgentProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&panoptiumiov1alpha1.PanoptiumAgentProfile{}).
+		For(&panoptiumiov1alpha1.AgentProfile{}).
 		Complete(r)
 }

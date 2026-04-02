@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - bases/panoptium.io_agentpolicies.yaml
+  - bases/panoptium.io_agentclusterpolicies.yaml
+  - bases/panoptium.io_agentprofiles.yaml
+  - bases/panoptium.io_threatsignatures.yaml
+  - bases/panoptium.io_agentquarantines.yaml

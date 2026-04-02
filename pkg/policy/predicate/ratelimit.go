@@ -75,6 +75,17 @@ func (c *SlidingWindowCounter) countLocked(key string) int {
 	return len(valid)
 }
 
+// IncrementAndCheck atomically increments the counter for the given key
+// and returns true if the new count exceeds the specified limit. This
+// provides a race-free increment-then-check operation for per-rule dynamic
+// limits.
+func (c *SlidingWindowCounter) IncrementAndCheck(key string, limit int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = append(c.entries[key], time.Now())
+	return c.countLocked(key) > limit
+}
+
 // Cleanup removes all expired entries across all keys. This can be called
 // periodically by a background goroutine to prevent unbounded memory growth.
 func (c *SlidingWindowCounter) Cleanup() {

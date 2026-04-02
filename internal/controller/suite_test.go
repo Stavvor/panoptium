@@ -83,45 +83,45 @@ var _ = BeforeSuite(func() {
 	compiler := policy.NewPolicyCompiler()
 	testPolicyCache = policy.NewPolicyCache(compiler)
 
-	// Register the PanoptiumPolicy reconciler with PolicyCache
-	err = (&PanoptiumPolicyReconciler{
+	// Register the AgentPolicy reconciler with PolicyCache
+	err = (&AgentPolicyReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorderFor("panoptiumpolicy-controller"),
+		Recorder:    mgr.GetEventRecorderFor("agentpolicy-controller"),
 		PolicyCache: testPolicyCache,
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	// Register the PanoptiumAgentProfile reconciler
-	err = (&PanoptiumAgentProfileReconciler{
+	// Register the AgentProfile reconciler
+	err = (&AgentProfileReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("panoptiumagentprofile-controller"),
+		Recorder: mgr.GetEventRecorderFor("agentprofile-controller"),
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	// Register the PanoptiumThreatSignature reconciler
-	err = (&PanoptiumThreatSignatureReconciler{
+	// Register the ThreatSignature reconciler
+	err = (&ThreatSignatureReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("panoptiumthreatsignature-controller"),
+		Recorder: mgr.GetEventRecorderFor("threatsignature-controller"),
 		Registry: threat.NewCompiledSignatureRegistry(),
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	// Register the PanoptiumQuarantine reconciler
-	err = (&PanoptiumQuarantineReconciler{
+	// Register the AgentQuarantine reconciler
+	err = (&AgentQuarantineReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor("panoptiumquarantine-controller"),
+		Recorder: mgr.GetEventRecorderFor("agentquarantine-controller"),
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	// Register the ClusterPanoptiumPolicy reconciler with PolicyCache
-	err = (&ClusterPanoptiumPolicyReconciler{
+	// Register the AgentClusterPolicy reconciler with PolicyCache
+	err = (&AgentClusterPolicyReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Recorder:    mgr.GetEventRecorderFor("clusterpanoptiumpolicy-controller"),
+		Recorder:    mgr.GetEventRecorderFor("clusteragentpolicy-controller"),
 		PolicyCache: testPolicyCache,
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())

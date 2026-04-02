@@ -29,7 +29,7 @@ import (
 	"github.com/panoptium/panoptium/pkg/policy"
 )
 
-var _ = Describe("PanoptiumPolicy Controller PolicyCache Integration", func() {
+var _ = Describe("AgentPolicy Controller PolicyCache Integration", func() {
 	const (
 		timeout  = time.Second * 10
 		interval = time.Millisecond * 250
@@ -37,12 +37,12 @@ var _ = Describe("PanoptiumPolicy Controller PolicyCache Integration", func() {
 
 	Context("When a PolicyCache is configured on the reconciler", func() {
 		It("Should compile and cache the policy after creation", func() {
-			pol := &panoptiumiov1alpha1.PanoptiumPolicy{
+			pol := &panoptiumiov1alpha1.AgentPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cache-test-add",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+				Spec: panoptiumiov1alpha1.AgentPolicySpec{
 					TargetSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "cache-test"},
 					},
@@ -88,12 +88,12 @@ var _ = Describe("PanoptiumPolicy Controller PolicyCache Integration", func() {
 		})
 
 		It("Should update the cached policy when the CRD is updated", func() {
-			pol := &panoptiumiov1alpha1.PanoptiumPolicy{
+			pol := &panoptiumiov1alpha1.AgentPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cache-test-update",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+				Spec: panoptiumiov1alpha1.AgentPolicySpec{
 					TargetSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "cache-update"},
 					},
@@ -128,7 +128,7 @@ var _ = Describe("PanoptiumPolicy Controller PolicyCache Integration", func() {
 			}, timeout, interval).Should(BeTrue())
 
 			// Update the policy
-			updated := &panoptiumiov1alpha1.PanoptiumPolicy{}
+			updated := &panoptiumiov1alpha1.AgentPolicy{}
 			Expect(k8sClient.Get(ctx, lookupKey, updated)).Should(Succeed())
 			updated.Spec.Priority = 200
 			Expect(k8sClient.Update(ctx, updated)).Should(Succeed())
@@ -146,12 +146,12 @@ var _ = Describe("PanoptiumPolicy Controller PolicyCache Integration", func() {
 		})
 
 		It("Should remove from cache when the CRD is deleted", func() {
-			pol := &panoptiumiov1alpha1.PanoptiumPolicy{
+			pol := &panoptiumiov1alpha1.AgentPolicy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cache-test-delete",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+				Spec: panoptiumiov1alpha1.AgentPolicySpec{
 					TargetSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "cache-delete"},
 					},
@@ -186,7 +186,7 @@ var _ = Describe("PanoptiumPolicy Controller PolicyCache Integration", func() {
 			}, timeout, interval).Should(BeTrue())
 
 			// Delete the policy
-			toDelete := &panoptiumiov1alpha1.PanoptiumPolicy{}
+			toDelete := &panoptiumiov1alpha1.AgentPolicy{}
 			Expect(k8sClient.Get(ctx, lookupKey, toDelete)).Should(Succeed())
 			Expect(k8sClient.Delete(ctx, toDelete)).Should(Succeed())
 
@@ -205,5 +205,5 @@ var _ = Describe("PanoptiumPolicy Controller PolicyCache Integration", func() {
 })
 
 // testPolicyCache is the shared PolicyCache used by the test suite.
-// It is initialized in suite_test.go and passed to the PanoptiumPolicyReconciler.
+// It is initialized in suite_test.go and passed to the AgentPolicyReconciler.
 var testPolicyCache *policy.PolicyCache

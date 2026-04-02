@@ -75,11 +75,11 @@ var _ = Describe("Helm Deployment E2E", Label("e2e-helm"), Ordered, func() {
 		})
 	})
 
-	Context("Webhook rejects invalid PanoptiumPolicy", func() {
-		It("should reject a PanoptiumPolicy with priority 0", func() {
-			By("applying an invalid PanoptiumPolicy with priority: 0")
+	Context("Webhook rejects invalid AgentPolicy", func() {
+		It("should reject a AgentPolicy with priority 0", func() {
+			By("applying an invalid AgentPolicy with priority: 0")
 			invalidYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: e2e-helm-invalid-policy
   namespace: %s
@@ -102,19 +102,19 @@ spec:
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(invalidYAML)
 			output, err := utils.Run(cmd)
-			Expect(err).To(HaveOccurred(), "kubectl apply should fail for invalid PanoptiumPolicy")
+			Expect(err).To(HaveOccurred(), "kubectl apply should fail for invalid AgentPolicy")
 			Expect(output).To(ContainSubstring("priority"),
 				"Error should mention priority validation failure")
 		})
 	})
 
-	Context("Webhook accepts valid PanoptiumPolicy", func() {
+	Context("Webhook accepts valid AgentPolicy", func() {
 		const validPolicyName = "e2e-helm-valid-policy"
 
-		It("should accept a valid PanoptiumPolicy", func() {
-			By("applying a valid PanoptiumPolicy resource")
+		It("should accept a valid AgentPolicy", func() {
+			By("applying a valid AgentPolicy resource")
 			validYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -137,7 +137,7 @@ spec:
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(validYAML)
 			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "kubectl apply should succeed for valid PanoptiumPolicy")
+			Expect(err).NotTo(HaveOccurred(), "kubectl apply should succeed for valid AgentPolicy")
 
 			DeferCleanup(func() {
 				cmd := exec.Command("kubectl", "delete", "panoptiumpolicy", validPolicyName,

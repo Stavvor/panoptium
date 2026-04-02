@@ -127,43 +127,26 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 			gwIP := gatewayServiceIP()
 			Expect(gwIP).NotTo(BeEmpty(), "Gateway service IP should be available")
 
-			By("sending a streaming /v1/chat/completions request through AgentGateway")
+			By("creating a persistent curl pod for the streaming request")
 			podName := fmt.Sprintf("openai-test-%d", time.Now().UnixNano()%100000)
+			createPersistentCurlPodWithName(podName, namespace)
 			DeferCleanup(func() {
-				cmd := exec.Command("kubectl", "delete", "pod", podName,
-					"--namespace", namespace, "--ignore-not-found=true")
-				_, _ = utils.Run(cmd)
+				deletePersistentCurlPod(podName, namespace)
 			})
 
-			cmd := exec.Command("kubectl", "run", podName,
-				"--restart=Never",
-				"--namespace", namespace,
-				"--labels=panoptium.io/monitored=true",
-				"--image=curlimages/curl:7.78.0",
-				"--", "-s", "--max-time", "30",
+			By("waiting for PodCache informer to sync")
+			time.Sleep(5 * time.Second)
+
+			By("sending a streaming /v1/chat/completions request through AgentGateway")
+			curlCmd := exec.Command("kubectl", "exec", podName,
+				"-n", namespace,
+				"--", "curl",
+				"-s", "--max-time", "30",
 				"-X", "POST",
 				fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
 				"-H", "Content-Type: application/json",
 				"-d", `{"model":"gpt-4","messages":[{"role":"user","content":"hi"}],"stream":true}`)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "kubectl run should succeed")
-
-			By("waiting for curl pod to complete")
-			waitCmd := exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", podName),
-				"--for=jsonpath={.status.phase}=Succeeded",
-				"--namespace", namespace, "--timeout=60s")
-			_, err = utils.Run(waitCmd)
-			if err != nil {
-				// Check if pod failed instead
-				phaseCmd := exec.Command("kubectl", "get", "pod", podName,
-					"--namespace", namespace, "-o", "jsonpath={.status.phase}")
-				phase, _ := utils.Run(phaseCmd)
-				Expect(phase).NotTo(Equal("Failed"), "curl pod should not fail")
-			}
-
-			By("reading curl output from pod logs")
-			logsCmd := exec.Command("kubectl", "logs", podName, "--namespace", namespace)
-			output, err := utils.Run(logsCmd)
+			output, err := utils.Run(curlCmd)
 			Expect(err).NotTo(HaveOccurred(), "OpenAI request through AgentGateway should succeed")
 
 			By("verifying response contains expected SSE token data")
@@ -179,42 +162,26 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 			gwIP := gatewayServiceIP()
 			Expect(gwIP).NotTo(BeEmpty(), "Gateway service IP should be available")
 
-			By("sending a second streaming /v1/chat/completions request with a different agent ID")
+			By("creating a persistent curl pod for the second streaming request")
 			podName := fmt.Sprintf("second-test-%d", time.Now().UnixNano()%100000)
+			createPersistentCurlPodWithName(podName, namespace)
 			DeferCleanup(func() {
-				cmd := exec.Command("kubectl", "delete", "pod", podName,
-					"--namespace", namespace, "--ignore-not-found=true")
-				_, _ = utils.Run(cmd)
+				deletePersistentCurlPod(podName, namespace)
 			})
 
-			cmd := exec.Command("kubectl", "run", podName,
-				"--restart=Never",
-				"--namespace", namespace,
-				"--labels=panoptium.io/monitored=true",
-				"--image=curlimages/curl:7.78.0",
-				"--", "-s", "--max-time", "30",
+			By("waiting for PodCache informer to sync")
+			time.Sleep(5 * time.Second)
+
+			By("sending a second streaming /v1/chat/completions request with a different agent ID")
+			curlCmd := exec.Command("kubectl", "exec", podName,
+				"-n", namespace,
+				"--", "curl",
+				"-s", "--max-time", "30",
 				"-X", "POST",
 				fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
 				"-H", "Content-Type: application/json",
 				"-d", `{"model":"gpt-4","messages":[{"role":"user","content":"hi again"}],"stream":true}`)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "kubectl run should succeed")
-
-			By("waiting for curl pod to complete")
-			waitCmd := exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", podName),
-				"--for=jsonpath={.status.phase}=Succeeded",
-				"--namespace", namespace, "--timeout=60s")
-			_, err = utils.Run(waitCmd)
-			if err != nil {
-				phaseCmd := exec.Command("kubectl", "get", "pod", podName,
-					"--namespace", namespace, "-o", "jsonpath={.status.phase}")
-				phase, _ := utils.Run(phaseCmd)
-				Expect(phase).NotTo(Equal("Failed"), "curl pod should not fail")
-			}
-
-			By("reading curl output from pod logs")
-			logsCmd := exec.Command("kubectl", "logs", podName, "--namespace", namespace)
-			output, err := utils.Run(logsCmd)
+			output, err := utils.Run(curlCmd)
 			Expect(err).NotTo(HaveOccurred(), "Second request through AgentGateway should succeed")
 
 			By("verifying response contains expected SSE data")
@@ -345,25 +312,30 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 			gwIP := gatewayServiceIP()
 			Expect(gwIP).NotTo(BeEmpty(), "Gateway service IP should be available")
 
+			By("creating a persistent curl pod for concurrent requests")
+			podName := fmt.Sprintf("concurrent-test-%d", time.Now().UnixNano()%100000)
+			createPersistentCurlPodWithName(podName, namespace)
+			DeferCleanup(func() {
+				deletePersistentCurlPod(podName, namespace)
+			})
+
+			By("waiting for PodCache informer to sync")
+			time.Sleep(5 * time.Second)
+
 			agentIDs := []string{"agent-alpha", "agent-beta", "agent-gamma"}
 
 			By("launching 3 sequential requests with different agent IDs")
 			for _, agentID := range agentIDs {
-				podName := fmt.Sprintf("concurrent-%s-%d", agentID, time.Now().UnixNano()%100000)
-				cmd := exec.Command("kubectl", "run", podName,
-					"--restart=Never",
-					"--rm", "--attach",
-					"--namespace", namespace,
-					"--labels=panoptium.io/monitored=true",
-					"--image=curlimages/curl:7.78.0",
-					"--", "-s",
-					"-w", "\n%{http_code}",
+				curlCmd := exec.Command("kubectl", "exec", podName,
+					"-n", namespace,
+					"--", "curl",
+					"-s", "--max-time", "30",
 					"-X", "POST",
 					fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
 					"-H", "Content-Type: application/json",
 					"-d", fmt.Sprintf(`{"model":"gpt-4","messages":[{"role":"user","content":"test %s"}],"stream":true}`, agentID))
 
-				output, err := utils.Run(cmd)
+				output, err := utils.Run(curlCmd)
 				Expect(err).NotTo(HaveOccurred(),
 					fmt.Sprintf("request for agent %s should succeed", agentID))
 				Expect(output).To(ContainSubstring("Hello"),

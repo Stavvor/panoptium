@@ -27,14 +27,14 @@ import (
 
 // --- Test Helpers ---
 
-// newTestPolicy creates a PanoptiumPolicy with the given rules for testing.
-func newTestPolicy(name, namespace string, priority int32, rules []v1alpha1.PolicyRule) *v1alpha1.PanoptiumPolicy {
-	return &v1alpha1.PanoptiumPolicy{
+// newTestPolicy creates a AgentPolicy with the given rules for testing.
+func newTestPolicy(name, namespace string, priority int32, rules []v1alpha1.PolicyRule) *v1alpha1.AgentPolicy {
+	return &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
@@ -512,12 +512,12 @@ func TestPolicyCompiler_EnforcementMode(t *testing.T) {
 
 // --- CompileCluster Tests ---
 
-func newTestClusterPolicy(name string, priority int32, rules []v1alpha1.PolicyRule) *v1alpha1.ClusterPanoptiumPolicy {
-	return &v1alpha1.ClusterPanoptiumPolicy{
+func newTestClusterPolicy(name string, priority int32, rules []v1alpha1.PolicyRule) *v1alpha1.AgentClusterPolicy {
+	return &v1alpha1.AgentClusterPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Spec: v1alpha1.ClusterPanoptiumPolicySpec{
+		Spec: v1alpha1.AgentClusterPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},

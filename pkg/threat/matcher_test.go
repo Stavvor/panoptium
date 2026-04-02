@@ -348,7 +348,7 @@ func TestCompiledSignatureRegistry_InvalidRegex(t *testing.T) {
 		Severity:  "high",
 		Patterns: []PatternDef{
 			{
-				Regex:  `(?i)ignore\s+(`,  // invalid regex: unclosed group
+				Regex:  `(?i)ignore\s+(`, // invalid regex: unclosed group
 				Weight: 0.9,
 				Target: "tool_description",
 			},

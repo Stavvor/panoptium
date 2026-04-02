@@ -232,11 +232,11 @@ func TestActionType_RateLimitBackwardCompatibility(t *testing.T) {
 }
 
 // TestActionType_ClusterPolicyUnknownTypeCausesCompilationError verifies that
-// ActionType validation also works for ClusterPanoptiumPolicy compilation.
+// ActionType validation also works for AgentClusterPolicy compilation.
 func TestActionType_ClusterPolicyUnknownTypeCausesCompilationError(t *testing.T) {
 	compiler := NewPolicyCompiler()
-	clusterPolicy := &v1alpha1.ClusterPanoptiumPolicy{
-		Spec: v1alpha1.ClusterPanoptiumPolicySpec{
+	clusterPolicy := &v1alpha1.AgentClusterPolicy{
+		Spec: v1alpha1.AgentClusterPolicySpec{
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
 			Rules: []v1alpha1.PolicyRule{

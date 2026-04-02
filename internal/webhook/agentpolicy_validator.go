@@ -33,45 +33,45 @@ import (
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 )
 
-// PanoptiumPolicyValidator validates PanoptiumPolicy resources on create and update.
+// AgentPolicyValidator validates AgentPolicy resources on create and update.
 // It checks required fields, priority range, CEL expression syntax, and regex patterns.
-type PanoptiumPolicyValidator struct{}
+type AgentPolicyValidator struct{}
 
-var _ webhook.CustomValidator = &PanoptiumPolicyValidator{}
+var _ webhook.CustomValidator = &AgentPolicyValidator{}
 
 // SetupWebhookWithManager registers the validating webhook with the manager.
-func (v *PanoptiumPolicyValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func (v *AgentPolicyValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&panoptiumiov1alpha1.PanoptiumPolicy{}).
+		For(&panoptiumiov1alpha1.AgentPolicy{}).
 		WithValidator(v).
 		Complete()
 }
 
-// ValidateCreate validates a PanoptiumPolicy on creation.
-func (v *PanoptiumPolicyValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	policy, ok := obj.(*panoptiumiov1alpha1.PanoptiumPolicy)
+// ValidateCreate validates a AgentPolicy on creation.
+func (v *AgentPolicyValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	policy, ok := obj.(*panoptiumiov1alpha1.AgentPolicy)
 	if !ok {
-		return nil, fmt.Errorf("expected PanoptiumPolicy but got %T", obj)
+		return nil, fmt.Errorf("expected AgentPolicy but got %T", obj)
 	}
 	return validatePolicy(policy)
 }
 
-// ValidateUpdate validates a PanoptiumPolicy on update.
-func (v *PanoptiumPolicyValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	policy, ok := newObj.(*panoptiumiov1alpha1.PanoptiumPolicy)
+// ValidateUpdate validates a AgentPolicy on update.
+func (v *AgentPolicyValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
+	policy, ok := newObj.(*panoptiumiov1alpha1.AgentPolicy)
 	if !ok {
-		return nil, fmt.Errorf("expected PanoptiumPolicy but got %T", newObj)
+		return nil, fmt.Errorf("expected AgentPolicy but got %T", newObj)
 	}
 	return validatePolicy(policy)
 }
 
-// ValidateDelete validates a PanoptiumPolicy on deletion (no-op).
-func (v *PanoptiumPolicyValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+// ValidateDelete validates a AgentPolicy on deletion (no-op).
+func (v *AgentPolicyValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }
 
-// validatePolicy performs all validation checks on a PanoptiumPolicy.
-func validatePolicy(policy *panoptiumiov1alpha1.PanoptiumPolicy) (admission.Warnings, error) {
+// validatePolicy performs all validation checks on a AgentPolicy.
+func validatePolicy(policy *panoptiumiov1alpha1.AgentPolicy) (admission.Warnings, error) {
 	var allErrs field.ErrorList
 	var warnings admission.Warnings
 

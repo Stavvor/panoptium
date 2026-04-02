@@ -301,6 +301,12 @@ func (b *NATSBus) decodeEvent(data []byte) (eventbus.Event, error) {
 			return nil, err
 		}
 		return &evt, nil
+	case strings.HasPrefix(env.EventType, "enforcement.") || strings.HasPrefix(env.EventType, "policy."):
+		var evt eventbus.EnforcementEvent
+		if err := json.Unmarshal(env.Data, &evt); err != nil {
+			return nil, err
+		}
+		return &evt, nil
 	default:
 		// For unknown types, return a generic BaseEvent
 		return &eventbus.BaseEvent{

@@ -62,6 +62,14 @@ func NewEscalationProcessor(levels []EscalationLevel) *EscalationProcessor {
 	}
 }
 
+// SetLevels replaces the configured escalation levels. This allows dynamic
+// reconfiguration as policy parameters arrive via events.
+func (p *EscalationProcessor) SetLevels(levels []EscalationLevel) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.levels = levels
+}
+
 // RecordAction records an action occurrence for the given agent key.
 func (p *EscalationProcessor) RecordAction(agentKey, actionType string) {
 	p.mu.Lock()

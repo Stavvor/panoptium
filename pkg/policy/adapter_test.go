@@ -25,6 +25,24 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// testRateLimitCounter is a simple in-memory rate limit counter for tests.
+// It tracks per-key counts and checks against a dynamic limit.
+type testRateLimitCounter struct {
+	mu    sync.Mutex
+	count map[string]int
+}
+
+func newTestRateLimitCounter() *testRateLimitCounter {
+	return &testRateLimitCounter{count: make(map[string]int)}
+}
+
+func (c *testRateLimitCounter) IncrementAndCheck(key string, limit int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.count[key]++
+	return c.count[key] > limit
+}
+
 // TestEvaluatorAdapter_EmptyCache verifies that the adapter returns a default
 // allow decision when the cache contains no policies.
 func TestEvaluatorAdapter_EmptyCache(t *testing.T) {
@@ -66,12 +84,12 @@ func TestEvaluatorAdapter_DenyDecision(t *testing.T) {
 	adapter := NewEvaluatorAdapter(cache, resolver)
 
 	// Add a deny policy targeting tool_call events
-	pol := &v1alpha1.PanoptiumPolicy{
+	pol := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "block-dangerous",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -125,12 +143,12 @@ func TestEvaluatorAdapter_ConcurrentSafety(t *testing.T) {
 	adapter := NewEvaluatorAdapter(cache, resolver)
 
 	// Add a policy
-	pol := &v1alpha1.PanoptiumPolicy{
+	pol := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "concurrent-test",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -208,12 +226,12 @@ func TestEvaluatorAdapter_CallsGetPoliciesAndResolver(t *testing.T) {
 	}
 
 	// Add policy and verify it gets picked up
-	pol := &v1alpha1.PanoptiumPolicy{
+	pol := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "llm-policy",
 			Namespace: "test-ns",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        50,
@@ -240,5 +258,87 @@ func TestEvaluatorAdapter_CallsGetPoliciesAndResolver(t *testing.T) {
 	}
 	if !decision.Matched {
 		t.Error("expected match after adding policy")
+	}
+}
+
+// TestEvaluatorAdapter_RateLimiting verifies the end-to-end rate limiting flow:
+// requests within the burst limit are allowed, and requests exceeding the
+// limit are matched with a rateLimit action.
+func TestEvaluatorAdapter_RateLimiting(t *testing.T) {
+	compiler := NewPolicyCompiler()
+	cache := NewPolicyCache(compiler)
+	counter := newTestRateLimitCounter()
+	resolver := NewPolicyCompositionResolverWithRateLimit(counter)
+	adapter := NewEvaluatorAdapter(cache, resolver)
+
+	// Add a rate limit policy
+	pol := &v1alpha1.AgentPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "rate-limit-test",
+			Namespace: "default",
+		},
+		Spec: v1alpha1.AgentPolicySpec{
+			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{}},
+			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
+			Priority:        100,
+			Rules: []v1alpha1.PolicyRule{
+				{
+					Name: "throttle-rate-test",
+					Trigger: v1alpha1.Trigger{
+						EventCategory:    "protocol",
+						EventSubcategory: "tool_call",
+					},
+					Predicates: []v1alpha1.Predicate{
+						{CEL: `event.toolName == "rate_test"`},
+					},
+					Action: v1alpha1.Action{
+						Type: v1alpha1.ActionTypeRateLimit,
+						Parameters: map[string]string{
+							"requestsPerMinute": "3",
+							"burstSize":         "3",
+						},
+					},
+					Severity: v1alpha1.SeverityMedium,
+				},
+			},
+		},
+	}
+	if err := cache.OnAdd(pol); err != nil {
+		t.Fatalf("OnAdd() error = %v", err)
+	}
+
+	event := &PolicyEvent{
+		Category:    "protocol",
+		Subcategory: "tool_call",
+		Timestamp:   time.Now(),
+		Namespace:   "default",
+		PodName:     "agent-pod",
+		Fields:      map[string]interface{}{"toolName": "rate_test"},
+	}
+
+	// First 3 requests: within burst limit, should be allowed
+	for i := 1; i <= 3; i++ {
+		decision, err := adapter.Evaluate(event)
+		if err != nil {
+			t.Fatalf("request %d: Evaluate() error = %v", i, err)
+		}
+		if decision.Matched {
+			t.Errorf("request %d: expected no match (within rate limit), got matched with action %q", i, decision.Action.Type)
+		}
+		if decision.Action.Type != "allow" {
+			t.Errorf("request %d: expected allow, got %q", i, decision.Action.Type)
+		}
+	}
+
+	// 4th request: exceeds burst limit, should be rate limited
+	decision, err := adapter.Evaluate(event)
+	if err != nil {
+		t.Fatalf("4th request: Evaluate() error = %v", err)
+	}
+	if !decision.Matched {
+		t.Error("4th request: expected match (rate limit exceeded)")
+	}
+	if decision.Action.Type != v1alpha1.ActionTypeRateLimit {
+		t.Errorf("4th request: expected rateLimit action, got %q", decision.Action.Type)
 	}
 }

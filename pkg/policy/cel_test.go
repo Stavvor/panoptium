@@ -25,13 +25,13 @@ import (
 )
 
 // Helper to create a policy with a single predicate.
-func makePredicatePolicy(name, celExpr string) *v1alpha1.PanoptiumPolicy {
-	return &v1alpha1.PanoptiumPolicy{
+func makePredicatePolicy(name, celExpr string) *v1alpha1.AgentPolicy {
+	return &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -345,9 +345,9 @@ func TestCEL_InvalidExpressionReturnsError(t *testing.T) {
 	compiler := NewPolicyCompiler()
 
 	invalidExprs := []string{
-		`event.toolName ===`,         // syntax error
-		`gibberish not valid CEL`,    // not valid CEL
-		`event.unknown_func()`,       // unknown function
+		`event.toolName ===`,      // syntax error
+		`gibberish not valid CEL`, // not valid CEL
+		`event.unknown_func()`,    // unknown function
 	}
 
 	for _, expr := range invalidExprs {

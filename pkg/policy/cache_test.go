@@ -24,13 +24,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func makeTestPolicy(name, namespace string, priority int32) *v1alpha1.PanoptiumPolicy {
-	return &v1alpha1.PanoptiumPolicy{
+func makeTestPolicy(name, namespace string, priority int32) *v1alpha1.AgentPolicy {
+	return &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        priority,
@@ -241,12 +241,12 @@ func TestPolicyCache_OnAdd_CompileError(t *testing.T) {
 	cache.OnAdd(goodPol)
 
 	// Try adding a policy with an invalid trigger
-	badPol := &v1alpha1.PanoptiumPolicy{
+	badPol := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "bad",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        200,

@@ -28,20 +28,20 @@ import (
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 )
 
-var _ = Describe("PanoptiumQuarantine Controller", func() {
+var _ = Describe("AgentQuarantine Controller", func() {
 	const (
 		timeout  = time.Second * 10
 		interval = time.Millisecond * 250
 	)
 
-	Context("When creating a PanoptiumQuarantine", func() {
+	Context("When creating a AgentQuarantine", func() {
 		It("Should add finalizer and set Contained condition", func() {
-			quarantine := &panoptiumiov1alpha1.PanoptiumQuarantine{
+			quarantine := &panoptiumiov1alpha1.AgentQuarantine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-quarantine-basic",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumQuarantineSpec{
+				Spec: panoptiumiov1alpha1.AgentQuarantineSpec{
 					TargetPod:        "suspicious-agent-pod",
 					TargetNamespace:  "ai-agents",
 					ContainmentLevel: panoptiumiov1alpha1.ContainmentLevelNetworkIsolate,
@@ -53,7 +53,7 @@ var _ = Describe("PanoptiumQuarantine Controller", func() {
 			Expect(k8sClient.Create(ctx, quarantine)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-quarantine-basic", Namespace: "default"}
-			createdQ := &panoptiumiov1alpha1.PanoptiumQuarantine{}
+			createdQ := &panoptiumiov1alpha1.AgentQuarantine{}
 
 			// Verify finalizer is added
 			Eventually(func() bool {
@@ -85,12 +85,12 @@ var _ = Describe("PanoptiumQuarantine Controller", func() {
 		})
 
 		It("Should set containedAt timestamp on creation", func() {
-			quarantine := &panoptiumiov1alpha1.PanoptiumQuarantine{
+			quarantine := &panoptiumiov1alpha1.AgentQuarantine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-quarantine-timestamp",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumQuarantineSpec{
+				Spec: panoptiumiov1alpha1.AgentQuarantineSpec{
 					TargetPod:        "timestamped-pod",
 					TargetNamespace:  "test-ns",
 					ContainmentLevel: panoptiumiov1alpha1.ContainmentLevelSyscallRestrict,
@@ -101,7 +101,7 @@ var _ = Describe("PanoptiumQuarantine Controller", func() {
 			Expect(k8sClient.Create(ctx, quarantine)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-quarantine-timestamp", Namespace: "default"}
-			createdQ := &panoptiumiov1alpha1.PanoptiumQuarantine{}
+			createdQ := &panoptiumiov1alpha1.AgentQuarantine{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdQ)
@@ -113,12 +113,12 @@ var _ = Describe("PanoptiumQuarantine Controller", func() {
 		})
 
 		It("Should run finalizer cleanup on deletion", func() {
-			quarantine := &panoptiumiov1alpha1.PanoptiumQuarantine{
+			quarantine := &panoptiumiov1alpha1.AgentQuarantine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-quarantine-delete",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumQuarantineSpec{
+				Spec: panoptiumiov1alpha1.AgentQuarantineSpec{
 					TargetPod:        "deletable-pod",
 					TargetNamespace:  "test-ns",
 					ContainmentLevel: panoptiumiov1alpha1.ContainmentLevelFreeze,
@@ -129,7 +129,7 @@ var _ = Describe("PanoptiumQuarantine Controller", func() {
 			Expect(k8sClient.Create(ctx, quarantine)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-quarantine-delete", Namespace: "default"}
-			createdQ := &panoptiumiov1alpha1.PanoptiumQuarantine{}
+			createdQ := &panoptiumiov1alpha1.AgentQuarantine{}
 
 			// Wait for finalizer to be added
 			Eventually(func() bool {
@@ -156,12 +156,12 @@ var _ = Describe("PanoptiumQuarantine Controller", func() {
 		})
 
 		It("Should trigger auto-release after TTL", func() {
-			quarantine := &panoptiumiov1alpha1.PanoptiumQuarantine{
+			quarantine := &panoptiumiov1alpha1.AgentQuarantine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-quarantine-autorelease",
 					Namespace: "default",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumQuarantineSpec{
+				Spec: panoptiumiov1alpha1.AgentQuarantineSpec{
 					TargetPod:        "auto-release-pod",
 					TargetNamespace:  "test-ns",
 					ContainmentLevel: panoptiumiov1alpha1.ContainmentLevelNetworkIsolate,
@@ -176,7 +176,7 @@ var _ = Describe("PanoptiumQuarantine Controller", func() {
 			Expect(k8sClient.Create(ctx, quarantine)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-quarantine-autorelease", Namespace: "default"}
-			createdQ := &panoptiumiov1alpha1.PanoptiumQuarantine{}
+			createdQ := &panoptiumiov1alpha1.AgentQuarantine{}
 
 			// Verify initially contained
 			Eventually(func() bool {

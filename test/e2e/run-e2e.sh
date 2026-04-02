@@ -262,7 +262,7 @@ cd "${PROJECT_ROOT}"
 if [[ "${DEPLOY_METHOD}" == "helm" ]]; then
     E2E_LABEL_FILTER="${E2E_LABEL_FILTER:-e2e-helm}"
 else
-    E2E_LABEL_FILTER="${E2E_LABEL_FILTER:-e2e-extproc || e2e-crd || e2e-policy}"
+    E2E_LABEL_FILTER="${E2E_LABEL_FILTER:-e2e-extproc || e2e-crd || e2e-policy || e2e-enforcement || e2e-threat-sig}"
 fi
 
 go test ./test/e2e/ -v -ginkgo.v -timeout 600s \

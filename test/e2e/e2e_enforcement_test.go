@@ -83,7 +83,7 @@ var _ = Describe("Gateway Enforcement E2E", Label("e2e-enforcement"), Ordered, f
 		It("should return 403 with structured error when request matches deny rule", func() {
 			policyName := uniqueName("ge1-deny")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -108,9 +108,9 @@ spec:
       severity: HIGH
 `, policyName, namespace)
 
-			By("applying PanoptiumPolicy with deny rule")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			By("applying AgentPolicy with deny rule")
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 
 			By("waiting for policy to be compiled")
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
@@ -146,7 +146,7 @@ spec:
 		It("should return 429 with Retry-After after exceeding rate limit", func() {
 			policyName := uniqueName("ge2-throttle")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
-kind: PanoptiumPolicy
+kind: AgentPolicy
 metadata:
   name: %s
   namespace: %s
@@ -171,9 +171,9 @@ spec:
       severity: MEDIUM
 `, policyName, namespace)
 
-			By("applying PanoptiumPolicy with throttle rule")
-			Expect(applyPanoptiumPolicy(yaml)).To(Succeed())
-			DeferCleanup(func() { deletePanoptiumPolicy(policyName, namespace) })
+			By("applying AgentPolicy with throttle rule")
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 
 			By("waiting for policy to be compiled")
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
@@ -244,7 +244,7 @@ spec:
 
 		It("should allow all traffic when no deny policies are applied", func() {
 			By("ensuring no blocking policies exist")
-			cmd := exec.Command("kubectl", "get", "panoptiumpolicies",
+			cmd := exec.Command("kubectl", "get", "agentpolicies",
 				"-n", namespace, "-o", "jsonpath={.items}")
 			output, err := utils.Run(cmd)
 			if err == nil {

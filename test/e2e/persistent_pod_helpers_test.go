@@ -96,16 +96,12 @@ func TestBuildCurlExecArgs(t *testing.T) {
 		t.Errorf("expected gateway URL with 10.0.0.1:8080 in args: %v", args)
 	}
 
-	// Should contain agent-id header
-	agentFound := false
+	// Should NOT contain agent-id header (identity is resolved via pod labels)
 	for _, a := range args {
-		if strings.Contains(a, "agent-1") {
-			agentFound = true
+		if strings.Contains(a, "x-panoptium-agent-id") {
+			t.Errorf("unexpected x-panoptium-agent-id header in args: %v", args)
 			break
 		}
-	}
-	if !agentFound {
-		t.Errorf("expected agent-id header with 'agent-1' in args: %v", args)
 	}
 
 	// Should contain the tool name in the JSON payload

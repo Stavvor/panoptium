@@ -34,10 +34,10 @@ import (
 
 // AgentCard represents a parsed A2A Agent Card.
 type AgentCard struct {
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	URL            string   `json:"url"`
-	Skills         []Skill  `json:"skills"`
+	Name           string    `json:"name"`
+	Description    string    `json:"description"`
+	URL            string    `json:"url"`
+	Skills         []Skill   `json:"skills"`
 	Authentication *AuthInfo `json:"authentication,omitempty"`
 }
 
@@ -216,10 +216,10 @@ func (p *A2AParser) ProcessResponse(_ context.Context, headers map[string]string
 			Protocol:    "a2a",
 			MessageType: "a2a.agent.discovered",
 			Metadata: map[string]interface{}{
-				"agent_name":   card.Name,
-				"agent_url":    card.URL,
-				"description":  card.Description,
-				"skills":       card.Skills,
+				"agent_name":  card.Name,
+				"agent_url":   card.URL,
+				"description": card.Description,
+				"skills":      card.Skills,
 			},
 		}
 		if card.Authentication != nil {

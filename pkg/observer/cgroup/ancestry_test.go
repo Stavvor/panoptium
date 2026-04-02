@@ -196,8 +196,8 @@ func TestHandleProcessExecBuildsAncestry(t *testing.T) {
 
 	// Simulate Tetragon ProcessExec with parent chain.
 	tracker.HandleProcessExec(TetragonProcessInfo{
-		PID:       1000,
-		ParentPID: 100,
+		PID:          1000,
+		ParentPID:    100,
 		AncestorPIDs: []uint32{10, 1},
 	})
 
@@ -246,8 +246,8 @@ func TestHandleProcessExecDoesNotOverwriteExistingParent(t *testing.T) {
 
 	// First exec establishes parent for PID 100.
 	tracker.HandleProcessExec(TetragonProcessInfo{
-		PID:       200,
-		ParentPID: 100,
+		PID:          200,
+		ParentPID:    100,
 		AncestorPIDs: []uint32{50},
 	})
 
@@ -256,8 +256,8 @@ func TestHandleProcessExecDoesNotOverwriteExistingParent(t *testing.T) {
 
 	// Second exec for PID 300 also has 100 in its ancestor chain.
 	tracker.HandleProcessExec(TetragonProcessInfo{
-		PID:       300,
-		ParentPID: 100,
+		PID:          300,
+		ParentPID:    100,
 		AncestorPIDs: []uint32{50},
 	})
 
@@ -299,13 +299,13 @@ func TestAncestryChainWalkAfterTetragonMigration(t *testing.T) {
 		ParentPID: 1,
 	})
 	tracker.HandleProcessExec(TetragonProcessInfo{
-		PID:       100,
-		ParentPID: 10,
+		PID:          100,
+		ParentPID:    10,
 		AncestorPIDs: []uint32{1},
 	})
 	tracker.HandleProcessExec(TetragonProcessInfo{
-		PID:       1000,
-		ParentPID: 100,
+		PID:          1000,
+		ParentPID:    100,
 		AncestorPIDs: []uint32{10, 1},
 	})
 

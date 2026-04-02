@@ -18,6 +18,7 @@ rules:
   verbs:
   - get
   - list
+  - patch
   - watch
 - apiGroups:
   - ""
@@ -37,11 +38,11 @@ rules:
 - apiGroups:
   - panoptium.io
   resources:
-  - clusterpanoptiumpolicies
-  - panoptiumagentprofiles
-  - panoptiumpolicies
-  - panoptiumquarantines
-  - panoptiumthreatsignatures
+  - agentclusterpolicies
+  - agentpolicies
+  - agentprofiles
+  - agentquarantines
+  - threatsignatures
   verbs:
   - create
   - delete
@@ -53,21 +54,21 @@ rules:
 - apiGroups:
   - panoptium.io
   resources:
-  - clusterpanoptiumpolicies/finalizers
-  - panoptiumagentprofiles/finalizers
-  - panoptiumpolicies/finalizers
-  - panoptiumquarantines/finalizers
-  - panoptiumthreatsignatures/finalizers
+  - agentclusterpolicies/finalizers
+  - agentpolicies/finalizers
+  - agentprofiles/finalizers
+  - agentquarantines/finalizers
+  - threatsignatures/finalizers
   verbs:
   - update
 - apiGroups:
   - panoptium.io
   resources:
-  - clusterpanoptiumpolicies/status
-  - panoptiumagentprofiles/status
-  - panoptiumpolicies/status
-  - panoptiumquarantines/status
-  - panoptiumthreatsignatures/status
+  - agentclusterpolicies/status
+  - agentpolicies/status
+  - agentprofiles/status
+  - agentquarantines/status
+  - threatsignatures/status
   verbs:
   - get
   - patch

@@ -28,19 +28,19 @@ import (
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 )
 
-var _ = Describe("PanoptiumThreatSignature Controller", func() {
+var _ = Describe("ThreatSignature Controller", func() {
 	const (
 		timeout  = time.Second * 10
 		interval = time.Millisecond * 250
 	)
 
-	Context("When creating a PanoptiumThreatSignature", func() {
+	Context("When creating a ThreatSignature", func() {
 		It("Should set Ready condition to True for valid signature", func() {
-			sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+			sig := &panoptiumiov1alpha1.ThreatSignature{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-sig-ready",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+				Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 					Protocols:   []string{"mcp"},
 					Category:    "prompt_injection",
 					Severity:    panoptiumiov1alpha1.SeverityHigh,
@@ -60,7 +60,7 @@ var _ = Describe("PanoptiumThreatSignature Controller", func() {
 			Expect(k8sClient.Create(ctx, sig)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-sig-ready"}
-			createdSig := &panoptiumiov1alpha1.PanoptiumThreatSignature{}
+			createdSig := &panoptiumiov1alpha1.ThreatSignature{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdSig)
@@ -79,11 +79,11 @@ var _ = Describe("PanoptiumThreatSignature Controller", func() {
 		})
 
 		It("Should set Ready to False for invalid regex", func() {
-			sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+			sig := &panoptiumiov1alpha1.ThreatSignature{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-sig-invalid-regex",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+				Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 					Protocols:   []string{"mcp"},
 					Category:    "prompt_injection",
 					Severity:    panoptiumiov1alpha1.SeverityMedium,
@@ -103,7 +103,7 @@ var _ = Describe("PanoptiumThreatSignature Controller", func() {
 			Expect(k8sClient.Create(ctx, sig)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-sig-invalid-regex"}
-			createdSig := &panoptiumiov1alpha1.PanoptiumThreatSignature{}
+			createdSig := &panoptiumiov1alpha1.ThreatSignature{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdSig)
@@ -120,11 +120,11 @@ var _ = Describe("PanoptiumThreatSignature Controller", func() {
 		})
 
 		It("Should track ObservedGeneration", func() {
-			sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+			sig := &panoptiumiov1alpha1.ThreatSignature{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-sig-generation",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+				Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 					Protocols:   []string{"mcp"},
 					Category:    "data_exfiltration",
 					Severity:    panoptiumiov1alpha1.SeverityLow,
@@ -144,7 +144,7 @@ var _ = Describe("PanoptiumThreatSignature Controller", func() {
 			Expect(k8sClient.Create(ctx, sig)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-sig-generation"}
-			createdSig := &panoptiumiov1alpha1.PanoptiumThreatSignature{}
+			createdSig := &panoptiumiov1alpha1.ThreatSignature{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdSig)
@@ -156,11 +156,11 @@ var _ = Describe("PanoptiumThreatSignature Controller", func() {
 		})
 
 		It("Should handle deletion cleanly", func() {
-			sig := &panoptiumiov1alpha1.PanoptiumThreatSignature{
+			sig := &panoptiumiov1alpha1.ThreatSignature{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-sig-delete",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumThreatSignatureSpec{
+				Spec: panoptiumiov1alpha1.ThreatSignatureSpec{
 					Protocols:   []string{"mcp"},
 					Category:    "prompt_injection",
 					Severity:    panoptiumiov1alpha1.SeverityInfo,
@@ -180,7 +180,7 @@ var _ = Describe("PanoptiumThreatSignature Controller", func() {
 			Expect(k8sClient.Create(ctx, sig)).Should(Succeed())
 
 			lookupKey := types.NamespacedName{Name: "test-sig-delete"}
-			createdSig := &panoptiumiov1alpha1.PanoptiumThreatSignature{}
+			createdSig := &panoptiumiov1alpha1.ThreatSignature{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdSig)

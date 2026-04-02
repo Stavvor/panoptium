@@ -26,22 +26,22 @@ import (
 
 // TestSortPoliciesByPriority verifies that policies are sorted in descending priority order.
 func TestSortPoliciesByPriority(t *testing.T) {
-	policies := []panoptiumiov1alpha1.PanoptiumPolicy{
+	policies := []panoptiumiov1alpha1.AgentPolicy{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "low-priority"},
-			Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+			Spec: panoptiumiov1alpha1.AgentPolicySpec{
 				Priority: 10,
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "high-priority"},
-			Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+			Spec: panoptiumiov1alpha1.AgentPolicySpec{
 				Priority: 500,
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "medium-priority"},
-			Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+			Spec: panoptiumiov1alpha1.AgentPolicySpec{
 				Priority: 100,
 			},
 		},
@@ -64,15 +64,15 @@ func TestSortPoliciesByPriority(t *testing.T) {
 func TestDetectPriorityConflicts(t *testing.T) {
 	tests := []struct {
 		name         string
-		policies     []panoptiumiov1alpha1.PanoptiumPolicy
+		policies     []panoptiumiov1alpha1.AgentPolicy
 		wantConflict bool
 	}{
 		{
 			name: "no conflict - different priorities",
-			policies: []panoptiumiov1alpha1.PanoptiumPolicy{
+			policies: []panoptiumiov1alpha1.AgentPolicy{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "policy-a", Namespace: "default"},
-					Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+					Spec: panoptiumiov1alpha1.AgentPolicySpec{
 						Priority: 100,
 						TargetSelector: metav1.LabelSelector{
 							MatchLabels: map[string]string{"app": "agent"},
@@ -81,7 +81,7 @@ func TestDetectPriorityConflicts(t *testing.T) {
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "policy-b", Namespace: "default"},
-					Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+					Spec: panoptiumiov1alpha1.AgentPolicySpec{
 						Priority: 200,
 						TargetSelector: metav1.LabelSelector{
 							MatchLabels: map[string]string{"app": "agent"},
@@ -93,10 +93,10 @@ func TestDetectPriorityConflicts(t *testing.T) {
 		},
 		{
 			name: "conflict - same priority, overlapping selector",
-			policies: []panoptiumiov1alpha1.PanoptiumPolicy{
+			policies: []panoptiumiov1alpha1.AgentPolicy{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "policy-a", Namespace: "default"},
-					Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+					Spec: panoptiumiov1alpha1.AgentPolicySpec{
 						Priority: 100,
 						TargetSelector: metav1.LabelSelector{
 							MatchLabels: map[string]string{"app": "agent"},
@@ -105,7 +105,7 @@ func TestDetectPriorityConflicts(t *testing.T) {
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "policy-b", Namespace: "default"},
-					Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+					Spec: panoptiumiov1alpha1.AgentPolicySpec{
 						Priority: 100,
 						TargetSelector: metav1.LabelSelector{
 							MatchLabels: map[string]string{"app": "agent"},
@@ -117,10 +117,10 @@ func TestDetectPriorityConflicts(t *testing.T) {
 		},
 		{
 			name: "no conflict - same priority, different selectors",
-			policies: []panoptiumiov1alpha1.PanoptiumPolicy{
+			policies: []panoptiumiov1alpha1.AgentPolicy{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "policy-a", Namespace: "default"},
-					Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+					Spec: panoptiumiov1alpha1.AgentPolicySpec{
 						Priority: 100,
 						TargetSelector: metav1.LabelSelector{
 							MatchLabels: map[string]string{"app": "agent-a"},
@@ -129,7 +129,7 @@ func TestDetectPriorityConflicts(t *testing.T) {
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "policy-b", Namespace: "default"},
-					Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+					Spec: panoptiumiov1alpha1.AgentPolicySpec{
 						Priority: 100,
 						TargetSelector: metav1.LabelSelector{
 							MatchLabels: map[string]string{"app": "agent-b"},

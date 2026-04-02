@@ -31,12 +31,12 @@ import (
 // --- Integration Test: Compile -> Evaluate -> Verify Decision and Trace ---
 
 func TestIntegration_CompileEvaluateDecisionTrace(t *testing.T) {
-	pol := &v1alpha1.PanoptiumPolicy{
+	pol := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "trace-test",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -106,12 +106,12 @@ func TestIntegration_MultiPolicyComposition(t *testing.T) {
 	compiler := policy.NewPolicyCompiler()
 
 	// High priority deny policy
-	denyPol := &v1alpha1.PanoptiumPolicy{
+	denyPol := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "deny-policy",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        200,
@@ -133,12 +133,12 @@ func TestIntegration_MultiPolicyComposition(t *testing.T) {
 	}
 
 	// Lower priority allow policy
-	allowPol := &v1alpha1.PanoptiumPolicy{
+	allowPol := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "allow-policy",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,
@@ -389,12 +389,12 @@ func TestIntegration_DecisionEventPublished(t *testing.T) {
 	pub := policy.NewDecisionPublisher(bus)
 
 	// Compile a real policy
-	pol := &v1alpha1.PanoptiumPolicy{
+	pol := &v1alpha1.AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "publish-test",
 			Namespace: "default",
 		},
-		Spec: v1alpha1.PanoptiumPolicySpec{
+		Spec: v1alpha1.AgentPolicySpec{
 			TargetSelector:  metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}},
 			EnforcementMode: v1alpha1.EnforcementModeEnforcing,
 			Priority:        100,

@@ -16,7 +16,10 @@ limitations under the License.
 
 package policy
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // PolicyEvent represents a runtime event to be evaluated against compiled policies.
 // It provides a uniform interface for events from all trigger layers.
@@ -54,23 +57,33 @@ func (e *PolicyEvent) GetField(path string) interface{} {
 }
 
 // GetStringField retrieves a string field value from the event.
-// Returns empty string if the field does not exist or is not a string.
+// Returns empty string if the field does not exist.
 func (e *PolicyEvent) GetStringField(path string) string {
 	v := e.GetField(path)
-	if s, ok := v.(string); ok {
+	switch s := v.(type) {
+	case string:
 		return s
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", s)
 	}
-	return ""
 }
 
 // GetIntField retrieves an integer field value from the event.
-// Returns 0 if the field does not exist or is not an int.
+// Returns 0 if the field does not exist or is not numeric.
 func (e *PolicyEvent) GetIntField(path string) int {
 	v := e.GetField(path)
-	if i, ok := v.(int); ok {
+	switch i := v.(type) {
+	case int:
 		return i
+	case int64:
+		return int(i)
+	case float64:
+		return int(i)
+	default:
+		return 0
 	}
-	return 0
 }
 
 // Decision represents the outcome of evaluating a PolicyEvent against compiled policies.
@@ -80,6 +93,12 @@ type Decision struct {
 
 	// Matched indicates whether any rule matched the event.
 	Matched bool
+
+	// AuditOnly indicates that the decision came from a policy with
+	// enforcementMode=audit. The action should be logged/emitted but not
+	// actually enforced (e.g., a "deny" in audit mode is recorded but the
+	// request is allowed through).
+	AuditOnly bool
 
 	// MatchedRule is the name of the first matched rule (empty if no match).
 	MatchedRule string

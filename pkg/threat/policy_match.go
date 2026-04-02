@@ -17,7 +17,7 @@ limitations under the License.
 package threat
 
 // ThreatSignatureSelector defines criteria for matching threat signatures
-// in PanoptiumPolicy rules. When multiple fields are specified, all must match
+// in AgentPolicy rules. When multiple fields are specified, all must match
 // (AND semantics). Within each field, any value can match (OR semantics).
 type ThreatSignatureSelector struct {
 	// Names matches specific threat signatures by name.

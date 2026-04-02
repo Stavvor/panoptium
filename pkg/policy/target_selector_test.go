@@ -142,10 +142,10 @@ func TestTargetSelector_MatchExpressions(t *testing.T) {
 	resolver := NewPolicyCompositionResolver()
 
 	tests := []struct {
-		name           string
-		selector       *metav1.LabelSelector
-		podLabels      map[string]string
-		expectMatch    bool
+		name        string
+		selector    *metav1.LabelSelector
+		podLabels   map[string]string
+		expectMatch bool
 	}{
 		{
 			name: "In operator matches",

@@ -28,24 +28,23 @@ import (
 	panoptiumiov1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 )
 
-var _ = Describe("PanoptiumPolicy Controller", func() {
+var _ = Describe("AgentClusterPolicy Controller", func() {
 	const (
 		timeout  = time.Second * 10
 		interval = time.Millisecond * 250
 	)
 
-	Context("When creating a PanoptiumPolicy", func() {
-		It("Should set Ready condition to True for a valid policy", func() {
-			policy := &panoptiumiov1alpha1.PanoptiumPolicy{
+	Context("When creating a AgentClusterPolicy", func() {
+		It("Should set Ready condition to True and Enforcing to False for audit mode", func() {
+			policy := &panoptiumiov1alpha1.AgentClusterPolicy{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-policy-ready",
-					Namespace: "default",
+					Name: "test-cluster-policy-audit",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+				Spec: panoptiumiov1alpha1.AgentClusterPolicySpec{
 					TargetSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "agent"},
 					},
-					EnforcementMode: panoptiumiov1alpha1.EnforcementModeEnforcing,
+					EnforcementMode: panoptiumiov1alpha1.EnforcementModeAudit,
 					Priority:        100,
 					Rules: []panoptiumiov1alpha1.PolicyRule{
 						{
@@ -65,8 +64,8 @@ var _ = Describe("PanoptiumPolicy Controller", func() {
 
 			Expect(k8sClient.Create(ctx, policy)).Should(Succeed())
 
-			lookupKey := types.NamespacedName{Name: "test-policy-ready", Namespace: "default"}
-			createdPolicy := &panoptiumiov1alpha1.PanoptiumPolicy{}
+			lookupKey := types.NamespacedName{Name: "test-cluster-policy-audit"}
+			createdPolicy := &panoptiumiov1alpha1.AgentClusterPolicy{}
 
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, lookupKey, createdPolicy)
@@ -85,15 +84,102 @@ var _ = Describe("PanoptiumPolicy Controller", func() {
 			Expect(createdPolicy.Status.ObservedGeneration).Should(Equal(createdPolicy.Generation))
 		})
 
-		It("Should update observedGeneration when spec changes", func() {
-			policy := &panoptiumiov1alpha1.PanoptiumPolicy{
+		It("Should set Enforcing condition to True for enforcing mode", func() {
+			policy := &panoptiumiov1alpha1.AgentClusterPolicy{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-policy-gen",
-					Namespace: "default",
+					Name: "test-cluster-policy-enforcing",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+				Spec: panoptiumiov1alpha1.AgentClusterPolicySpec{
 					TargetSelector: metav1.LabelSelector{
-						MatchLabels: map[string]string{"app": "agent-gen"},
+						MatchLabels: map[string]string{"app": "agent-enforcing"},
+					},
+					EnforcementMode: panoptiumiov1alpha1.EnforcementModeEnforcing,
+					Priority:        200,
+					Rules: []panoptiumiov1alpha1.PolicyRule{
+						{
+							Name: "deny-network",
+							Trigger: panoptiumiov1alpha1.Trigger{
+								EventCategory: "network",
+							},
+							Action: panoptiumiov1alpha1.Action{
+								Type: panoptiumiov1alpha1.ActionTypeDeny,
+							},
+							Severity: panoptiumiov1alpha1.SeverityCritical,
+						},
+					},
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, policy)).Should(Succeed())
+
+			lookupKey := types.NamespacedName{Name: "test-cluster-policy-enforcing"}
+			createdPolicy := &panoptiumiov1alpha1.AgentClusterPolicy{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, lookupKey, createdPolicy)
+				if err != nil {
+					return false
+				}
+				for _, c := range createdPolicy.Status.Conditions {
+					if c.Type == "Enforcing" && c.Status == metav1.ConditionTrue {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "Enforcing condition should be True")
+		})
+
+		It("Should set Degraded condition to True for empty targetSelector", func() {
+			policy := &panoptiumiov1alpha1.AgentClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-cluster-policy-degraded",
+				},
+				Spec: panoptiumiov1alpha1.AgentClusterPolicySpec{
+					TargetSelector:  metav1.LabelSelector{},
+					EnforcementMode: panoptiumiov1alpha1.EnforcementModeEnforcing,
+					Priority:        100,
+					Rules: []panoptiumiov1alpha1.PolicyRule{
+						{
+							Name: "rule-with-empty-selector",
+							Trigger: panoptiumiov1alpha1.Trigger{
+								EventCategory: "syscall",
+							},
+							Action: panoptiumiov1alpha1.Action{
+								Type: panoptiumiov1alpha1.ActionTypeDeny,
+							},
+							Severity: panoptiumiov1alpha1.SeverityHigh,
+						},
+					},
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, policy)).Should(Succeed())
+
+			lookupKey := types.NamespacedName{Name: "test-cluster-policy-degraded"}
+			createdPolicy := &panoptiumiov1alpha1.AgentClusterPolicy{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, lookupKey, createdPolicy)
+				if err != nil {
+					return false
+				}
+				for _, c := range createdPolicy.Status.Conditions {
+					if c.Type == "Degraded" && c.Status == metav1.ConditionTrue {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "Degraded condition should be True for empty selector")
+		})
+
+		It("Should update ruleCount and observedGeneration when spec changes", func() {
+			policy := &panoptiumiov1alpha1.AgentClusterPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-cluster-policy-update",
+				},
+				Spec: panoptiumiov1alpha1.AgentClusterPolicySpec{
+					TargetSelector: metav1.LabelSelector{
+						MatchLabels: map[string]string{"app": "agent-update"},
 					},
 					EnforcementMode: panoptiumiov1alpha1.EnforcementModeAudit,
 					Priority:        50,
@@ -114,8 +200,8 @@ var _ = Describe("PanoptiumPolicy Controller", func() {
 
 			Expect(k8sClient.Create(ctx, policy)).Should(Succeed())
 
-			lookupKey := types.NamespacedName{Name: "test-policy-gen", Namespace: "default"}
-			createdPolicy := &panoptiumiov1alpha1.PanoptiumPolicy{}
+			lookupKey := types.NamespacedName{Name: "test-cluster-policy-update"}
+			createdPolicy := &panoptiumiov1alpha1.AgentClusterPolicy{}
 
 			// Wait for initial reconcile
 			Eventually(func() int64 {
@@ -126,9 +212,20 @@ var _ = Describe("PanoptiumPolicy Controller", func() {
 				return createdPolicy.Status.ObservedGeneration
 			}, timeout, interval).Should(Equal(int64(1)))
 
-			// Update the spec to trigger a new generation
+			Expect(createdPolicy.Status.RuleCount).Should(Equal(int32(1)))
+
+			// Update the spec to add a new rule
 			Expect(k8sClient.Get(ctx, lookupKey, createdPolicy)).Should(Succeed())
-			createdPolicy.Spec.Priority = 200
+			createdPolicy.Spec.Rules = append(createdPolicy.Spec.Rules, panoptiumiov1alpha1.PolicyRule{
+				Name: "new-rule",
+				Trigger: panoptiumiov1alpha1.Trigger{
+					EventCategory: "llm",
+				},
+				Action: panoptiumiov1alpha1.Action{
+					Type: panoptiumiov1alpha1.ActionTypeAllow,
+				},
+				Severity: panoptiumiov1alpha1.SeverityLow,
+			})
 			Expect(k8sClient.Update(ctx, createdPolicy)).Should(Succeed())
 
 			// Wait for updated observedGeneration
@@ -139,76 +236,16 @@ var _ = Describe("PanoptiumPolicy Controller", func() {
 				}
 				return createdPolicy.Status.ObservedGeneration
 			}, timeout, interval).Should(Equal(int64(2)))
-		})
 
-		It("Should set ruleCount matching number of rules in spec", func() {
-			policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-policy-rulecount",
-					Namespace: "default",
-				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
-					TargetSelector: metav1.LabelSelector{
-						MatchLabels: map[string]string{"app": "agent-rc"},
-					},
-					EnforcementMode: panoptiumiov1alpha1.EnforcementModeEnforcing,
-					Priority:        75,
-					Rules: []panoptiumiov1alpha1.PolicyRule{
-						{
-							Name: "rule-1",
-							Trigger: panoptiumiov1alpha1.Trigger{
-								EventCategory: "syscall",
-							},
-							Action: panoptiumiov1alpha1.Action{
-								Type: panoptiumiov1alpha1.ActionTypeDeny,
-							},
-							Severity: panoptiumiov1alpha1.SeverityHigh,
-						},
-						{
-							Name: "rule-2",
-							Trigger: panoptiumiov1alpha1.Trigger{
-								EventCategory: "network",
-							},
-							Action: panoptiumiov1alpha1.Action{
-								Type: panoptiumiov1alpha1.ActionTypeAlert,
-							},
-							Severity: panoptiumiov1alpha1.SeverityMedium,
-						},
-						{
-							Name: "rule-3",
-							Trigger: panoptiumiov1alpha1.Trigger{
-								EventCategory: "llm",
-							},
-							Action: panoptiumiov1alpha1.Action{
-								Type: panoptiumiov1alpha1.ActionTypeAllow,
-							},
-							Severity: panoptiumiov1alpha1.SeverityLow,
-						},
-					},
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, policy)).Should(Succeed())
-
-			lookupKey := types.NamespacedName{Name: "test-policy-rulecount", Namespace: "default"}
-			createdPolicy := &panoptiumiov1alpha1.PanoptiumPolicy{}
-
-			Eventually(func() int32 {
-				err := k8sClient.Get(ctx, lookupKey, createdPolicy)
-				if err != nil {
-					return -1
-				}
-				return createdPolicy.Status.RuleCount
-			}, timeout, interval).Should(Equal(int32(3)))
+			Expect(createdPolicy.Status.RuleCount).Should(Equal(int32(2)))
 		})
 
 		It("Should handle deletion cleanly", func() {
-			policy := &panoptiumiov1alpha1.PanoptiumPolicy{
+			policy := &panoptiumiov1alpha1.AgentClusterPolicy{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-policy-delete",
-					Namespace: "default",
+					Name: "test-cluster-policy-delete",
 				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
+				Spec: panoptiumiov1alpha1.AgentClusterPolicySpec{
 					TargetSelector: metav1.LabelSelector{
 						MatchLabels: map[string]string{"app": "agent-del"},
 					},
@@ -231,8 +268,8 @@ var _ = Describe("PanoptiumPolicy Controller", func() {
 
 			Expect(k8sClient.Create(ctx, policy)).Should(Succeed())
 
-			lookupKey := types.NamespacedName{Name: "test-policy-delete", Namespace: "default"}
-			createdPolicy := &panoptiumiov1alpha1.PanoptiumPolicy{}
+			lookupKey := types.NamespacedName{Name: "test-cluster-policy-delete"}
+			createdPolicy := &panoptiumiov1alpha1.AgentClusterPolicy{}
 
 			// Wait for Ready
 			Eventually(func() bool {
@@ -256,50 +293,6 @@ var _ = Describe("PanoptiumPolicy Controller", func() {
 				err := k8sClient.Get(ctx, lookupKey, createdPolicy)
 				return err != nil
 			}, timeout, interval).Should(BeTrue(), "Policy should be deleted")
-		})
-
-		It("Should set Degraded condition when targetSelector has no matchLabels or matchExpressions", func() {
-			policy := &panoptiumiov1alpha1.PanoptiumPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-policy-degraded",
-					Namespace: "default",
-				},
-				Spec: panoptiumiov1alpha1.PanoptiumPolicySpec{
-					TargetSelector:  metav1.LabelSelector{},
-					EnforcementMode: panoptiumiov1alpha1.EnforcementModeEnforcing,
-					Priority:        100,
-					Rules: []panoptiumiov1alpha1.PolicyRule{
-						{
-							Name: "rule-with-empty-selector",
-							Trigger: panoptiumiov1alpha1.Trigger{
-								EventCategory: "syscall",
-							},
-							Action: panoptiumiov1alpha1.Action{
-								Type: panoptiumiov1alpha1.ActionTypeDeny,
-							},
-							Severity: panoptiumiov1alpha1.SeverityHigh,
-						},
-					},
-				},
-			}
-
-			Expect(k8sClient.Create(ctx, policy)).Should(Succeed())
-
-			lookupKey := types.NamespacedName{Name: "test-policy-degraded", Namespace: "default"}
-			createdPolicy := &panoptiumiov1alpha1.PanoptiumPolicy{}
-
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, lookupKey, createdPolicy)
-				if err != nil {
-					return false
-				}
-				for _, c := range createdPolicy.Status.Conditions {
-					if c.Type == "Degraded" && c.Status == metav1.ConditionTrue {
-						return true
-					}
-				}
-				return false
-			}, timeout, interval).Should(BeTrue(), "Degraded condition should be True for empty selector")
 		})
 	})
 })

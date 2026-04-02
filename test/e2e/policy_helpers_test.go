@@ -35,34 +35,34 @@ import (
 // CRD Management Helpers
 // ---------------------------------------------------------------------------
 
-// applyPanoptiumPolicy applies a PanoptiumPolicy CRD from the given YAML spec
+// applyAgentPolicy applies a AgentPolicy CRD from the given YAML spec
 // via kubectl. The YAML must be a complete resource manifest.
-func applyPanoptiumPolicy(yamlSpec string) error {
+func applyAgentPolicy(yamlSpec string) error {
 	cmd := exec.Command("kubectl", "apply", "-f", "-")
 	cmd.Stdin = strings.NewReader(yamlSpec)
 	_, err := utils.Run(cmd)
 	return err
 }
 
-// applyClusterPanoptiumPolicy applies a ClusterPanoptiumPolicy CRD from the
+// applyAgentClusterPolicy applies a AgentClusterPolicy CRD from the
 // given YAML spec via kubectl.
-func applyClusterPanoptiumPolicy(yamlSpec string) error {
+func applyAgentClusterPolicy(yamlSpec string) error {
 	cmd := exec.Command("kubectl", "apply", "-f", "-")
 	cmd.Stdin = strings.NewReader(yamlSpec)
 	_, err := utils.Run(cmd)
 	return err
 }
 
-// deletePanoptiumPolicy deletes a namespaced PanoptiumPolicy by name.
+// deleteAgentPolicy deletes a namespaced AgentPolicy by name.
 // Uses --ignore-not-found=true so it is safe to call on already-deleted resources.
-func deletePanoptiumPolicy(name, ns string) {
+func deleteAgentPolicy(name, ns string) {
 	cmd := exec.Command("kubectl", "delete", "panoptiumpolicy", name,
 		"-n", ns, "--ignore-not-found=true")
 	_, _ = utils.Run(cmd)
 }
 
-// deleteClusterPanoptiumPolicy deletes a cluster-scoped ClusterPanoptiumPolicy by name.
-func deleteClusterPanoptiumPolicy(name string) {
+// deleteAgentClusterPolicy deletes a cluster-scoped AgentClusterPolicy by name.
+func deleteAgentClusterPolicy(name string) {
 	cmd := exec.Command("kubectl", "delete", "clusterpanoptiumpolicy", name,
 		"--ignore-not-found=true")
 	_, _ = utils.Run(cmd)
@@ -72,31 +72,31 @@ func deleteClusterPanoptiumPolicy(name string) {
 // Status Polling Helpers
 // ---------------------------------------------------------------------------
 
-// waitForPolicyReady polls the PanoptiumPolicy status until Ready=True or the
+// waitForPolicyReady polls the AgentPolicy status until Ready=True or the
 // timeout expires. Uses Ginkgo Eventually for structured polling.
 func waitForPolicyReady(name, ns string, timeout time.Duration) {
-	By(fmt.Sprintf("waiting for PanoptiumPolicy %s/%s to be Ready=True", ns, name))
+	By(fmt.Sprintf("waiting for AgentPolicy %s/%s to be Ready=True", ns, name))
 	verifyReady := func(g Gomega) {
 		cmd := exec.Command("kubectl", "get", "panoptiumpolicy", name,
 			"-n", ns,
 			"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
 		output, err := utils.Run(cmd)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(output).To(Equal("True"), "PanoptiumPolicy should have Ready=True")
+		g.Expect(output).To(Equal("True"), "AgentPolicy should have Ready=True")
 	}
 	Eventually(verifyReady, timeout, 5*time.Second).Should(Succeed())
 }
 
-// waitForClusterPolicyReady polls the ClusterPanoptiumPolicy status until
+// waitForClusterPolicyReady polls the AgentClusterPolicy status until
 // Ready=True or the timeout expires.
 func waitForClusterPolicyReady(name string, timeout time.Duration) {
-	By(fmt.Sprintf("waiting for ClusterPanoptiumPolicy %s to be Ready=True", name))
+	By(fmt.Sprintf("waiting for AgentClusterPolicy %s to be Ready=True", name))
 	verifyReady := func(g Gomega) {
 		cmd := exec.Command("kubectl", "get", "clusterpanoptiumpolicy", name,
 			"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
 		output, err := utils.Run(cmd)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(output).To(Equal("True"), "ClusterPanoptiumPolicy should have Ready=True")
+		g.Expect(output).To(Equal("True"), "AgentClusterPolicy should have Ready=True")
 	}
 	Eventually(verifyReady, timeout, 5*time.Second).Should(Succeed())
 }
@@ -304,7 +304,7 @@ func getOperatorRestartCount() (int, error) {
 // Policy Status Helpers
 // ---------------------------------------------------------------------------
 
-// getPolicyRuleCount returns the ruleCount from the PanoptiumPolicy status.
+// getPolicyRuleCount returns the ruleCount from the AgentPolicy status.
 func getPolicyRuleCount(name, ns string) (int32, error) {
 	cmd := exec.Command("kubectl", "get", "panoptiumpolicy", name,
 		"-n", ns,
@@ -324,7 +324,7 @@ func getPolicyRuleCount(name, ns string) (int32, error) {
 	return int32(count), nil
 }
 
-// getPolicyObservedGeneration returns the observedGeneration from the PanoptiumPolicy status.
+// getPolicyObservedGeneration returns the observedGeneration from the AgentPolicy status.
 func getPolicyObservedGeneration(name, ns string) (int64, error) {
 	cmd := exec.Command("kubectl", "get", "panoptiumpolicy", name,
 		"-n", ns,

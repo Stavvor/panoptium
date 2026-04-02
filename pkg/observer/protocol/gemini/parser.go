@@ -113,15 +113,15 @@ type safetySetting struct {
 // --- Response types ---
 
 type generateContentResponse struct {
-	Candidates []candidate    `json:"candidates"`
+	Candidates    []candidate    `json:"candidates"`
 	UsageMetadata *usageMetadata `json:"usageMetadata,omitempty"`
 }
 
 type candidate struct {
-	Content        content         `json:"content"`
-	FinishReason   string          `json:"finishReason,omitempty"`
-	SafetyRatings  []safetyRating  `json:"safetyRatings,omitempty"`
-	CitationMetadata *citationMeta `json:"citationMetadata,omitempty"`
+	Content          content        `json:"content"`
+	FinishReason     string         `json:"finishReason,omitempty"`
+	SafetyRatings    []safetyRating `json:"safetyRatings,omitempty"`
+	CitationMetadata *citationMeta  `json:"citationMetadata,omitempty"`
 }
 
 type safetyRating struct {

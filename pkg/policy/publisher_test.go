@@ -32,12 +32,12 @@ func TestDecisionPublisher_EmitsMatchedRuleEvent(t *testing.T) {
 	pub := NewDecisionPublisher(bus)
 
 	decision := &Decision{
-		Action:           CompiledAction{Type: "deny"},
-		Matched:          true,
-		MatchedRule:      "block-curl",
-		MatchedRuleIndex: 0,
-		PolicyName:       "security-policy",
-		PolicyNamespace:  "production",
+		Action:             CompiledAction{Type: "deny"},
+		Matched:            true,
+		MatchedRule:        "block-curl",
+		MatchedRuleIndex:   0,
+		PolicyName:         "security-policy",
+		PolicyNamespace:    "production",
 		EvaluationDuration: 2 * time.Millisecond,
 	}
 
