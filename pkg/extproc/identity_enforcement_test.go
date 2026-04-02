@@ -98,7 +98,6 @@ func TestIdentityResolution_EnrolledPod(t *testing.T) {
 					"host", "api.openai.com",
 					"content-type", "application/json",
 					"x-forwarded-for", "10.0.0.50",
-	
 				),
 			},
 		},
@@ -160,16 +159,16 @@ func TestIdentityResolution_EnrolledPod(t *testing.T) {
 	}
 }
 
-// TestIdentityResolution_UnenrolledPod_EnforcingMode verifies that in
-// enforcing mode, requests from un-enrolled pods (source IP not in PodCache)
+// TestIdentityResolution_UnknownSource_EnforcingMode verifies that in
+// enforcing mode, requests from unknown source pods (source IP not in PodCache)
 // are rejected with a 403 ImmediateResponse.
-func TestIdentityResolution_UnenrolledPod_EnforcingMode(t *testing.T) {
+func TestIdentityResolution_UnknownSource_EnforcingMode(t *testing.T) {
 	bus, _, srv := setupEnforcementTestComponents(t, enforce.ModeEnforcing)
 	defer bus.Close()
 
-	// Do NOT register any pod in PodCache — the source IP is un-enrolled
+	// Do NOT register any pod in PodCache — the source IP is unknown
 
-	sub := bus.Subscribe("enforcement.unenrolled")
+	sub := bus.Subscribe("enforcement.unknown_source")
 	defer bus.Unsubscribe(sub)
 
 	client, cleanup := startTestServer(t, srv)
@@ -183,7 +182,7 @@ func TestIdentityResolution_UnenrolledPod_EnforcingMode(t *testing.T) {
 		t.Fatalf("failed to open stream: %v", err)
 	}
 
-	// Send request headers from un-enrolled pod
+	// Send request headers from unknown source pod
 	err = stream.Send(&extprocv3.ProcessingRequest{
 		Request: &extprocv3.ProcessingRequest_RequestHeaders{
 			RequestHeaders: &extprocv3.HttpHeaders{
@@ -193,7 +192,6 @@ func TestIdentityResolution_UnenrolledPod_EnforcingMode(t *testing.T) {
 					"host", "api.openai.com",
 					"content-type", "application/json",
 					"x-forwarded-for", "10.0.0.99",
-	
 				),
 			},
 		},
@@ -207,10 +205,10 @@ func TestIdentityResolution_UnenrolledPod_EnforcingMode(t *testing.T) {
 		t.Fatalf("failed to receive response: %v", err)
 	}
 
-	// In enforcing mode, un-enrolled pods should receive 403
+	// In enforcing mode, unknown source pods should receive 403
 	ir := resp.GetImmediateResponse()
 	if ir == nil {
-		t.Fatal("expected ImmediateResponse for un-enrolled pod in enforcing mode")
+		t.Fatal("expected ImmediateResponse for unknown source pod in enforcing mode")
 	}
 
 	if ir.Status.Code != 403 {
@@ -221,21 +219,21 @@ func TestIdentityResolution_UnenrolledPod_EnforcingMode(t *testing.T) {
 	if err := json.Unmarshal(ir.Body, &body); err != nil {
 		t.Fatalf("failed to unmarshal error body: %v", err)
 	}
-	if body.Error != "unenrolled_pod" {
-		t.Errorf("expected error 'unenrolled_pod', got %q", body.Error)
+	if body.Error != "unknown_source" {
+		t.Errorf("expected error 'unknown_source', got %q", body.Error)
 	}
 }
 
-// TestIdentityResolution_UnenrolledPod_AuditMode verifies that in audit mode,
-// requests from un-enrolled pods pass through with a warning (no blocking),
-// and an enforcement.unenrolled event is emitted to the Event Bus.
-func TestIdentityResolution_UnenrolledPod_AuditMode(t *testing.T) {
+// TestIdentityResolution_UnknownSource_AuditMode verifies that in audit mode,
+// requests from unknown source pods pass through with a warning (no blocking),
+// and an enforcement.unknown_source event is emitted to the Event Bus.
+func TestIdentityResolution_UnknownSource_AuditMode(t *testing.T) {
 	bus, _, srv := setupEnforcementTestComponents(t, enforce.ModeAudit)
 	defer bus.Close()
 
-	// Do NOT register any pod in PodCache — the source IP is un-enrolled
+	// Do NOT register any pod in PodCache — the source IP is unknown
 
-	sub := bus.Subscribe("enforcement.unenrolled")
+	sub := bus.Subscribe("enforcement.unknown_source")
 	defer bus.Unsubscribe(sub)
 
 	client, cleanup := startTestServer(t, srv)
@@ -249,7 +247,7 @@ func TestIdentityResolution_UnenrolledPod_AuditMode(t *testing.T) {
 		t.Fatalf("failed to open stream: %v", err)
 	}
 
-	// Send request headers from un-enrolled pod
+	// Send request headers from unknown source pod
 	err = stream.Send(&extprocv3.ProcessingRequest{
 		Request: &extprocv3.ProcessingRequest_RequestHeaders{
 			RequestHeaders: &extprocv3.HttpHeaders{
@@ -259,7 +257,6 @@ func TestIdentityResolution_UnenrolledPod_AuditMode(t *testing.T) {
 					"host", "api.openai.com",
 					"content-type", "application/json",
 					"x-forwarded-for", "10.0.0.99",
-	
 				),
 			},
 		},
@@ -273,22 +270,22 @@ func TestIdentityResolution_UnenrolledPod_AuditMode(t *testing.T) {
 		t.Fatalf("failed to receive response: %v", err)
 	}
 
-	// In audit mode, un-enrolled pods should pass through (no ImmediateResponse)
+	// In audit mode, unknown source pods should pass through (no ImmediateResponse)
 	if resp.GetImmediateResponse() != nil {
-		t.Fatal("un-enrolled pod in audit mode should NOT receive ImmediateResponse")
+		t.Fatal("unknown source pod in audit mode should NOT receive ImmediateResponse")
 	}
 	if resp.GetRequestHeaders() == nil {
 		t.Fatal("expected RequestHeaders response (pass-through) in audit mode")
 	}
 
-	// Verify enforcement.unenrolled event was emitted
+	// Verify enforcement.unknown_source event was emitted
 	select {
 	case evt := <-sub.Events():
-		if evt.EventType() != "enforcement.unenrolled" {
-			t.Errorf("expected 'enforcement.unenrolled' event, got %q", evt.EventType())
+		if evt.EventType() != "enforcement.unknown_source" {
+			t.Errorf("expected 'enforcement.unknown_source' event, got %q", evt.EventType())
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for enforcement.unenrolled event")
+		t.Fatal("timed out waiting for enforcement.unknown_source event")
 	}
 }
 
@@ -330,7 +327,6 @@ func TestIdentityResolution_PodUIDCorrelation(t *testing.T) {
 					"host", "api.openai.com",
 					"content-type", "application/json",
 					"x-forwarded-for", "10.0.0.77",
-	
 				),
 			},
 		},

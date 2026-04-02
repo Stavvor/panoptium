@@ -755,7 +755,7 @@ func TestLifecycleManagerEnforcementMode(t *testing.T) {
 	}
 
 	// The server should be in enforcing mode now
-	// We verify by sending a request from an un-enrolled pod - it should get 403
+	// We verify by sending a request from an unknown source pod - it should get 403
 	conn, err := grpc.NewClient(
 		mgr.Addr().String(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -771,7 +771,7 @@ func TestLifecycleManagerEnforcementMode(t *testing.T) {
 		t.Fatalf("failed to open stream: %v", err)
 	}
 
-	// Send request from an un-enrolled IP (not in PodCache)
+	// Send request from an unknown source IP (not in PodCache)
 	err = stream.Send(&extprocv3.ProcessingRequest{
 		Request: &extprocv3.ProcessingRequest_RequestHeaders{
 			RequestHeaders: &extprocv3.HttpHeaders{
@@ -780,7 +780,6 @@ func TestLifecycleManagerEnforcementMode(t *testing.T) {
 					":method", "POST",
 					"host", "api.openai.com",
 					"x-forwarded-for", "10.0.0.99",
-	
 				),
 			},
 		},
@@ -794,10 +793,10 @@ func TestLifecycleManagerEnforcementMode(t *testing.T) {
 		t.Fatalf("failed to receive response: %v", err)
 	}
 
-	// In enforcing mode, un-enrolled pods should get 403
+	// In enforcing mode, unknown source pods should get 403
 	ir := resp.GetImmediateResponse()
 	if ir == nil {
-		t.Fatal("expected ImmediateResponse for un-enrolled pod in enforcing mode")
+		t.Fatal("expected ImmediateResponse for unknown source pod in enforcing mode")
 	}
 	if ir.Status.Code != 403 {
 		t.Errorf("expected status 403, got %d", ir.Status.Code)
@@ -893,7 +892,6 @@ func TestLifecycleManagerPolicyEvaluator(t *testing.T) {
 		"host", "api.openai.com",
 		"content-type", "application/json",
 		"x-forwarded-for", "10.0.0.42",
-
 	}, reqBody)
 
 	// The mock evaluator returns a deny, so we should get 403

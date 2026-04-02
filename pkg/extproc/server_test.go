@@ -195,10 +195,6 @@ func TestProcess_BidirectionalStream(t *testing.T) {
 					":method", "POST",
 					"host", "api.openai.com",
 					"content-type", "application/json",
-	
-	
-	
-	
 				),
 			},
 		},
@@ -381,9 +377,6 @@ func TestProcess_RequestHeaderExtraction(t *testing.T) {
 					":method", "POST",
 					"host", "api.openai.com",
 					"content-type", "application/json",
-	
-	
-	
 				),
 			},
 		},
@@ -490,7 +483,7 @@ func TestProcess_AgentIdentityExtraction(t *testing.T) {
 			wantPodName:    "agent-pod-xyz",
 		},
 		{
-			name:           "Unenrolled pod gives low confidence",
+			name:           "Unknown source pod gives low confidence",
 			sourceIP:       "10.0.2.99",
 			wantConfidence: eventbus.ConfidenceLow,
 			wantID:         "",
@@ -615,9 +608,6 @@ func TestProcess_StreamedRequestBodyAssembly(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
-	
-	
 				),
 			},
 		},
@@ -715,9 +705,6 @@ func TestProcess_StreamedResponseBody(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
-	
-	
 				),
 			},
 		},
@@ -855,7 +842,6 @@ func TestProcess_PassiveMode(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -1045,7 +1031,6 @@ func TestProcess_EndOfStreamComplete(t *testing.T) {
 					":method", "POST",
 					"host", "api.openai.com",
 					"x-forwarded-for", "10.0.0.99",
-	
 				),
 			},
 		},
@@ -1324,9 +1309,6 @@ func TestProcess_MetricsComputation(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
-	
-	
 				),
 			},
 		},
@@ -1434,7 +1416,6 @@ func TestProcess_UnknownObserver(t *testing.T) {
 					":path", "/unknown/api/endpoint",
 					":method", "POST",
 					"host", "unknown.example.com",
-	
 				),
 			},
 		},
@@ -1551,7 +1532,6 @@ func TestProcess_MultiEventSSEFrame(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -1646,7 +1626,6 @@ func TestProcess_StreamEndTriggersFinalize(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -1739,9 +1718,6 @@ func TestProcess_AnthropicProvider(t *testing.T) {
 					":path", "/v1/messages",
 					":method", "POST",
 					"host", "api.anthropic.com",
-	
-	
-	
 				),
 			},
 		},
@@ -1868,7 +1844,6 @@ func TestProcess_RequestBodyEchoesViaBodyMutation(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -1950,7 +1925,6 @@ func TestProcess_ResponseBodyEchoesViaBodyMutation(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -2070,7 +2044,6 @@ func TestProcess_MultiChunkRequestBodyEchoesIndividually(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -2162,9 +2135,6 @@ func TestProcess_MultiChunkResponseBodyEchoesWithTokenParsing(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
-	
-	
 				),
 			},
 		},
@@ -2311,7 +2281,6 @@ func TestProcess_EndOfStreamOnlyOnFinalChunk(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -2438,7 +2407,6 @@ func TestRequestBody_UsesEmptyBodyResponse(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -2519,7 +2487,6 @@ func TestResponseBody_UsesStreamedResponse(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},
@@ -2644,7 +2611,6 @@ func TestMultiChunkBody_StreamedResponseEndOfStream(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-	
 				),
 			},
 		},

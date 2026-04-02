@@ -90,8 +90,8 @@ func TestNewDenyResponse(t *testing.T) {
 	}
 }
 
-func TestNewUnenrolledDenyResponse(t *testing.T) {
-	resp := NewUnenrolledDenyResponse("10.0.0.99")
+func TestNewUnknownSourceDenyResponse(t *testing.T) {
+	resp := NewUnknownSourceDenyResponse("10.0.0.99")
 
 	ir := resp.GetImmediateResponse()
 	if ir == nil {
@@ -105,8 +105,8 @@ func TestNewUnenrolledDenyResponse(t *testing.T) {
 	if err := json.Unmarshal(ir.Body, &body); err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
-	if body.Error != "unenrolled_pod" {
-		t.Errorf("expected 'unenrolled_pod', got %q", body.Error)
+	if body.Error != "unknown_source" {
+		t.Errorf("expected 'unknown_source', got %q", body.Error)
 	}
 }
 

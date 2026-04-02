@@ -96,12 +96,12 @@ func NewDenyResponse(rule, signature, message string) *extprocv3.ProcessingRespo
 	})
 }
 
-// NewUnenrolledDenyResponse creates a 403 Forbidden response for un-enrolled
-// pods in enforcing mode.
-func NewUnenrolledDenyResponse(sourceIP string) *extprocv3.ProcessingResponse {
+// NewUnknownSourceDenyResponse creates a 403 Forbidden response for unknown
+// source pods (not found in PodCache) in enforcing mode.
+func NewUnknownSourceDenyResponse(sourceIP string) *extprocv3.ProcessingResponse {
 	return NewImmediateResponse(typev3.StatusCode_Forbidden, &ErrorResponse{
-		Error:   "unenrolled_pod",
-		Message: "request from un-enrolled pod (source IP: " + sourceIP + ")",
+		Error:   "unknown_source",
+		Message: "request from unknown source (source IP: " + sourceIP + ")",
 	})
 }
 

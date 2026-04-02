@@ -61,16 +61,16 @@ func TestResolveFromIP_EnrolledPod(t *testing.T) {
 	}
 }
 
-// TestResolveFromIP_UnenrolledPod verifies that un-enrolled source IPs
+// TestResolveFromIP_UnknownSource verifies that unknown source IPs
 // receive a degraded identity with low confidence.
-func TestResolveFromIP_UnenrolledPod(t *testing.T) {
-	cache := NewPodCache() // empty cache — no enrolled pods
+func TestResolveFromIP_UnknownSource(t *testing.T) {
+	cache := NewPodCache() // empty cache — no known pods
 	resolver := NewResolver(cache)
 
 	identity := resolver.ResolveFromIP("10.0.2.20")
 
 	if identity.ID != "" {
-		t.Errorf("ID = %q, want empty string for unenrolled pod", identity.ID)
+		t.Errorf("ID = %q, want empty string for unknown source pod", identity.ID)
 	}
 	if identity.SourceIP != "10.0.2.20" {
 		t.Errorf("SourceIP = %q, want %q", identity.SourceIP, "10.0.2.20")

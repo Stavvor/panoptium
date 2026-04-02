@@ -16,19 +16,19 @@ limitations under the License.
 
 // Package identity provides agent identity resolution for the Panoptium operator.
 // Identity is resolved from the source pod IP via a Kubernetes-backed PodCache
-// filtered to only enrolled pods (panoptium.io/monitored=true).
+// that watches all pods across all namespaces.
 package identity
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/panoptium/panoptium/pkg/eventbus"
 )
 
-
 // Resolver resolves agent identity from the source pod IP via the PodCache.
-// The PodCache is filtered by panoptium.io/monitored=true, so only enrolled
-// pods are resolvable. Un-enrolled source IPs receive a degraded identity
+// The PodCache watches all pods, so any pod with a known IP is resolvable.
+// Unknown source IPs (not found in PodCache) receive a degraded identity
 // with low confidence.
 type Resolver struct {
 	cache *PodCache
@@ -56,6 +56,12 @@ func (r *Resolver) ResolveFromIP(sourceIP string) eventbus.AgentIdentity {
 		}
 	}
 
+	// Strip port if present (e.g. "10.244.0.15:45678" → "10.244.0.15").
+	// AgentGateway's source.address includes the port, but PodCache keys are bare IPs.
+	if host, _, err := net.SplitHostPort(sourceIP); err == nil {
+		sourceIP = host
+	}
+
 	podInfo, ok := r.cache.Get(sourceIP)
 	if ok {
 		recordResolution("pod", "success")
@@ -70,8 +76,8 @@ func (r *Resolver) ResolveFromIP(sourceIP string) eventbus.AgentIdentity {
 		}
 	}
 
-	// Source IP not in PodCache — pod is not enrolled
-	recordResolution("ip", "unenrolled")
+	// Source IP not in PodCache — unknown source
+	recordResolution("ip", "unknown_source")
 	return eventbus.AgentIdentity{
 		SourceIP:   sourceIP,
 		Confidence: eventbus.ConfidenceLow,
@@ -81,10 +87,6 @@ func (r *Resolver) ResolveFromIP(sourceIP string) eventbus.AgentIdentity {
 // Resolve extracts agent identity from the source IP found in HTTP headers.
 // This is a convenience wrapper around ResolveFromIP that extracts the
 // client IP from the request context or X-Forwarded-For header.
-//
-// NOTE: X-Panoptium-Agent-Id, X-Panoptium-Client-Ip, and X-Panoptium-Auth-Type
-// headers are no longer used for identity resolution (removed per FR-9).
-// Only X-Panoptium-Request-Id is retained as a correlation/tracing header.
 func (r *Resolver) Resolve(headers http.Header) eventbus.AgentIdentity {
 	// Extract source IP from standard forwarding headers
 	sourceIP := headers.Get("X-Forwarded-For")

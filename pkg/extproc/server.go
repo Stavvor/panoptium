@@ -82,7 +82,7 @@ func NewExtProcServer(registry *observer.ObserverRegistry, resolver *identity.Re
 }
 
 // SetEnforcementMode configures the enforcement behavior for this server.
-// In ModeEnforcing, un-enrolled pods are rejected and policy decisions are
+// In ModeEnforcing, unknown source pods are rejected and policy decisions are
 // actively enforced. In ModeAudit, all traffic passes through with warning
 // events emitted.
 func (s *ExtProcServer) SetEnforcementMode(mode enforce.EnforcementMode) {
@@ -202,7 +202,7 @@ func (s *ExtProcServer) Process(stream extprocv3.ExternalProcessor_ProcessServer
 }
 
 // handleRequestHeaders processes incoming request headers, selects an observer,
-// resolves agent identity via PodCache, enforces un-enrolled pod policy,
+// resolves agent identity via PodCache, enforces unknown source pod policy,
 // and builds the initial ObserverContext.
 func (s *ExtProcServer) handleRequestHeaders(ctx context.Context, state *streamState, headers *extprocv3.HttpHeaders, logger interface{ Info(string, ...interface{}) }) *extprocv3.ProcessingResponse {
 	httpHeaders := envoyHeadersToHTTP(headers.GetHeaders())
@@ -218,34 +218,34 @@ func (s *ExtProcServer) handleRequestHeaders(ctx context.Context, state *streamS
 	// Identity is derived exclusively from X-Forwarded-For -> PodCache lookup.
 	agentIdentity := s.resolver.Resolve(httpHeaders)
 
-	// Check for un-enrolled pods (source IP not found in PodCache)
+	// Check for unknown source pods (source IP not found in PodCache)
 	if agentIdentity.Confidence == eventbus.ConfidenceLow && agentIdentity.SourceIP != "" {
 		if s.enforcementMode == enforce.ModeEnforcing {
-			// Enforcing mode: reject un-enrolled pod requests with 403
+			// Enforcing mode: reject unknown source pod requests with 403
 			if l, ok := logger.(interface {
 				Info(string, ...interface{})
 			}); ok {
-				l.Info("rejecting request from un-enrolled pod",
+				l.Info("rejecting request from unknown source pod",
 					"sourceIP", agentIdentity.SourceIP, "requestID", requestID)
 			}
-			return enforce.NewUnenrolledDenyResponse(agentIdentity.SourceIP)
+			return enforce.NewUnknownSourceDenyResponse(agentIdentity.SourceIP)
 		}
 
 		// Audit mode: pass through but emit warning event
 		if l, ok := logger.(interface {
 			Info(string, ...interface{})
 		}); ok {
-			l.Info("request from un-enrolled pod (audit mode, passing through)",
+			l.Info("request from unknown source pod (audit mode, passing through)",
 				"sourceIP", agentIdentity.SourceIP, "requestID", requestID)
 		}
 		s.bus.Emit(&eventbus.EnforcementEvent{
 			BaseEvent: eventbus.BaseEvent{
-				Type:      eventbus.EventTypeEnforcementUnenrolled,
+				Type:      eventbus.EventTypeEnforcementUnknownSource,
 				Time:      time.Now(),
 				ReqID:     requestID,
 				AgentInfo: agentIdentity,
 			},
-			Reason:   "un-enrolled pod",
+			Reason:   "unknown source pod",
 			SourceIP: agentIdentity.SourceIP,
 			Action:   "pass-through",
 		})

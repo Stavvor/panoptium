@@ -31,9 +31,10 @@ const (
 	// EventTypeLLMRequestComplete is emitted when the response stream ends.
 	EventTypeLLMRequestComplete = "llm.request.complete"
 
-	// EventTypeEnforcementUnenrolled is emitted when a request from an un-enrolled pod
-	// is observed in audit mode (passed through with warning).
-	EventTypeEnforcementUnenrolled = "enforcement.unenrolled"
+	// EventTypeEnforcementUnknownSource is emitted when a request from an unknown
+	// source pod (not found in PodCache) is observed in audit mode (passed through
+	// with warning).
+	EventTypeEnforcementUnknownSource = "enforcement.unknown_source"
 
 	// EventTypeEnforcementBypass is emitted when the policy engine is unavailable
 	// and fail-open mode passes traffic through.
@@ -116,7 +117,7 @@ type AgentIdentity struct {
 	// Confidence indicates the reliability of the identity resolution.
 	// "high" = resolved from PodCache with full metadata
 	// "medium" = partially resolved
-	// "low" = unknown / unenrolled pod
+	// "low" = unknown source pod
 	Confidence string
 
 	// PodName is the resolved Kubernetes pod name.
@@ -225,7 +226,7 @@ type LLMRequestCompleteEvent struct {
 }
 
 // EnforcementEvent is emitted for enforcement-related occurrences such as
-// un-enrolled pod access, policy bypass, and policy decisions.
+// unknown source pod access, policy bypass, and policy decisions.
 type EnforcementEvent struct {
 	BaseEvent
 
@@ -237,4 +238,22 @@ type EnforcementEvent struct {
 
 	// Action is the enforcement action taken (e.g., "deny", "pass-through").
 	Action string
+
+	// EscalationThreshold is the number of repeated actions within the
+	// escalation window that triggers escalation. Zero means no escalation.
+	EscalationThreshold int
+
+	// EscalationWindow is the sliding time window for counting actions
+	// toward escalation.
+	EscalationWindow time.Duration
+
+	// EscalationAction is the action to take when escalation is triggered
+	// (e.g., "quarantine").
+	EscalationAction string
+
+	// PolicyName is the name of the policy that produced this decision.
+	PolicyName string
+
+	// PolicyNamespace is the namespace of the policy that produced this decision.
+	PolicyNamespace string
 }
