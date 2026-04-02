@@ -36,16 +36,16 @@ func TestSchemeRegistration(t *testing.T) {
 		obj  runtime.Object
 		gvk  string
 	}{
-		{"PanoptiumPolicy", &PanoptiumPolicy{}, "panoptium.io/v1alpha1, Kind=PanoptiumPolicy"},
-		{"PanoptiumPolicyList", &PanoptiumPolicyList{}, "panoptium.io/v1alpha1, Kind=PanoptiumPolicyList"},
-		{"ClusterPanoptiumPolicy", &ClusterPanoptiumPolicy{}, "panoptium.io/v1alpha1, Kind=ClusterPanoptiumPolicy"},
-		{"ClusterPanoptiumPolicyList", &ClusterPanoptiumPolicyList{}, "panoptium.io/v1alpha1, Kind=ClusterPanoptiumPolicyList"},
-		{"PanoptiumAgentProfile", &PanoptiumAgentProfile{}, "panoptium.io/v1alpha1, Kind=PanoptiumAgentProfile"},
-		{"PanoptiumAgentProfileList", &PanoptiumAgentProfileList{}, "panoptium.io/v1alpha1, Kind=PanoptiumAgentProfileList"},
-		{"PanoptiumThreatSignature", &PanoptiumThreatSignature{}, "panoptium.io/v1alpha1, Kind=PanoptiumThreatSignature"},
-		{"PanoptiumThreatSignatureList", &PanoptiumThreatSignatureList{}, "panoptium.io/v1alpha1, Kind=PanoptiumThreatSignatureList"},
-		{"PanoptiumQuarantine", &PanoptiumQuarantine{}, "panoptium.io/v1alpha1, Kind=PanoptiumQuarantine"},
-		{"PanoptiumQuarantineList", &PanoptiumQuarantineList{}, "panoptium.io/v1alpha1, Kind=PanoptiumQuarantineList"},
+		{"AgentPolicy", &AgentPolicy{}, "panoptium.io/v1alpha1, Kind=AgentPolicy"},
+		{"AgentPolicyList", &AgentPolicyList{}, "panoptium.io/v1alpha1, Kind=AgentPolicyList"},
+		{"AgentClusterPolicy", &AgentClusterPolicy{}, "panoptium.io/v1alpha1, Kind=AgentClusterPolicy"},
+		{"AgentClusterPolicyList", &AgentClusterPolicyList{}, "panoptium.io/v1alpha1, Kind=AgentClusterPolicyList"},
+		{"AgentProfile", &AgentProfile{}, "panoptium.io/v1alpha1, Kind=AgentProfile"},
+		{"AgentProfileList", &AgentProfileList{}, "panoptium.io/v1alpha1, Kind=AgentProfileList"},
+		{"ThreatSignature", &ThreatSignature{}, "panoptium.io/v1alpha1, Kind=ThreatSignature"},
+		{"ThreatSignatureList", &ThreatSignatureList{}, "panoptium.io/v1alpha1, Kind=ThreatSignatureList"},
+		{"AgentQuarantine", &AgentQuarantine{}, "panoptium.io/v1alpha1, Kind=AgentQuarantine"},
+		{"AgentQuarantineList", &AgentQuarantineList{}, "panoptium.io/v1alpha1, Kind=AgentQuarantineList"},
 	}
 
 	for _, tt := range tests {
@@ -64,15 +64,15 @@ func TestSchemeRegistration(t *testing.T) {
 	}
 }
 
-// TestPanoptiumPolicyDeepCopy verifies that DeepCopy works correctly for
-// PanoptiumPolicy, preserving all fields without aliasing.
-func TestPanoptiumPolicyDeepCopy(t *testing.T) {
-	original := &PanoptiumPolicy{
+// TestAgentPolicyDeepCopy verifies that DeepCopy works correctly for
+// AgentPolicy, preserving all fields without aliasing.
+func TestAgentPolicyDeepCopy(t *testing.T) {
+	original := &AgentPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-policy",
 			Namespace: "default",
 		},
-		Spec: PanoptiumPolicySpec{
+		Spec: AgentPolicySpec{
 			TargetSelector: metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "agent"},
 			},
@@ -96,7 +96,7 @@ func TestPanoptiumPolicyDeepCopy(t *testing.T) {
 				},
 			},
 		},
-		Status: PanoptiumPolicyStatus{
+		Status: AgentPolicyStatus{
 			ObservedGeneration: 1,
 			RuleCount:          1,
 			MatchingPods:       5,
