@@ -20,6 +20,7 @@ AGENTGATEWAY_VERSION="v1.0.1"
 GATEWAY_API_VERSION="v1.2.1"
 NAMESPACE="panoptium-system"
 KUBE_CTX="kind-${CLUSTER_NAME}"
+DEPLOY_METHOD="${DEPLOY_METHOD:-kustomize}"
 
 # Colors for output (disabled in CI)
 if [[ -t 1 ]] && [[ -z "${CI:-}" ]]; then
@@ -117,14 +118,82 @@ helm upgrade --install agentgateway \
 log_info "AgentGateway installed."
 
 # --------------------------------------------------------------------------
+# Phase 4.5: Install cert-manager (required for kustomize webhook TLS)
+# --------------------------------------------------------------------------
+if [[ "${DEPLOY_METHOD}" != "helm" ]]; then
+    log_info "=== Phase 4.5: cert-manager ==="
+    CERT_MANAGER_VERSION="v1.16.0"
+    CERT_MANAGER_URL="https://github.com/jetstack/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+    kubectl apply -f "${CERT_MANAGER_URL}"
+    log_info "Waiting for cert-manager webhook to be ready..."
+    kubectl wait deployment.apps/cert-manager \
+        --for=condition=Available \
+        --namespace cert-manager \
+        --timeout 300s
+    kubectl wait deployment.apps/cert-manager-cainjector \
+        --for=condition=Available \
+        --namespace cert-manager \
+        --timeout 300s
+    kubectl wait deployment.apps/cert-manager-webhook \
+        --for=condition=Available \
+        --namespace cert-manager \
+        --timeout 300s
+    # Wait for the webhook to be fully functional (CA bootstrap takes time after pod is ready)
+    log_info "Waiting for cert-manager webhook to become functional..."
+    for i in $(seq 1 30); do
+        if kubectl apply -f - <<'PROBE' 2>/dev/null; then
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: cert-manager-probe
+  namespace: default
+spec:
+  selfSigned: {}
+PROBE
+            kubectl delete issuer cert-manager-probe -n default 2>/dev/null || true
+            break
+        fi
+        log_info "  cert-manager webhook not ready yet (attempt $i/30)..."
+        sleep 5
+    done
+    log_info "cert-manager installed and ready."
+fi
+
+# --------------------------------------------------------------------------
 # Phase 5: Deploy panoptium operator
 # --------------------------------------------------------------------------
-log_info "=== Phase 5: Panoptium operator ==="
+log_info "=== Phase 5: Panoptium operator (method: ${DEPLOY_METHOD}) ==="
 # Create namespace if not exists
 kubectl create namespace "${NAMESPACE}" 2>/dev/null || true
 
 cd "${PROJECT_ROOT}"
-make deploy "IMG=${PANOPTIUM_IMG}"
+
+# Install Panoptium CRDs first (required before operator starts)
+log_info "Installing Panoptium CRDs..."
+make install
+
+# Parse image repository and tag from PANOPTIUM_IMG
+PANOPTIUM_IMG_REPO="${PANOPTIUM_IMG%:*}"
+PANOPTIUM_IMG_TAG="${PANOPTIUM_IMG##*:}"
+
+case "${DEPLOY_METHOD}" in
+    helm)
+        log_info "Deploying panoptium operator via Helm..."
+        helm install panoptium chart/panoptium/ \
+            --namespace "${NAMESPACE}" \
+            --create-namespace \
+            --set "image.repository=${PANOPTIUM_IMG_REPO}" \
+            --set "image.tag=${PANOPTIUM_IMG_TAG}" \
+            --set webhook.enabled=true \
+            --set webhook.certManager=false \
+            --kube-context "${KUBE_CTX}" \
+            --wait \
+            --timeout 120s
+        ;;
+    kustomize|*)
+        make deploy "IMG=${PANOPTIUM_IMG}"
+        ;;
+esac
 
 log_info "Waiting for panoptium operator to be ready..."
 kubectl wait deployment/panoptium-controller-manager \
@@ -185,12 +254,18 @@ log_info "=== Phase 9: E2E tests ==="
 export KIND_CLUSTER="${CLUSTER_NAME}"
 export KUBECONFIG="${HOME}/.kube/config"
 # Skip BeforeSuite steps that are already handled by this script
-export PROMETHEUS_INSTALL_SKIP=true
+# export PROMETHEUS_INSTALL_SKIP=true
 export CERT_MANAGER_INSTALL_SKIP=true
 cd "${PROJECT_ROOT}"
 
+if [[ "${DEPLOY_METHOD}" == "helm" ]]; then
+    E2E_LABEL_FILTER="${E2E_LABEL_FILTER:-e2e-helm}"
+else
+    E2E_LABEL_FILTER="${E2E_LABEL_FILTER:-e2e-extproc || e2e-crd || e2e-policy}"
+fi
+
 go test ./test/e2e/ -v -ginkgo.v -timeout 600s \
-    -ginkgo.label-filter="e2e-extproc" 2>&1 || {
+    -ginkgo.label-filter="${E2E_LABEL_FILTER}" 2>&1 || {
     log_error "E2E tests failed!"
     log_info "Dumping diagnostics..."
     kubectl get pods -A || true
