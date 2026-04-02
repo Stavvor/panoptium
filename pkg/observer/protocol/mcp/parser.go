@@ -21,7 +21,9 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/panoptium/panoptium/pkg/observer/protocol"
@@ -42,7 +44,7 @@ type ToolInfo struct {
 // MCPParser implements protocol.ProtocolParser for MCP JSON-RPC 2.0 messages.
 type MCPParser struct {
 	mu         sync.RWMutex
-	pendingIDs map[string]string // JSON-RPC id -> method name
+	pendingIDs map[string]string // JSON-RPC id (string) -> method name
 }
 
 // NewMCPParser creates a new MCP parser.
@@ -71,19 +73,226 @@ func (p *MCPParser) TrackRequest(id string, method string) {
 	p.pendingIDs[id] = method
 }
 
-// ProcessRequest parses a single MCP JSON-RPC request.
-func (p *MCPParser) ProcessRequest(_ context.Context, _ map[string]string, _ []byte) (*protocol.ParsedRequest, error) {
-	return nil, errors.New("not implemented")
+// lookupAndRemovePending retrieves and removes a pending request by ID.
+func (p *MCPParser) lookupAndRemovePending(id string) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	method, ok := p.pendingIDs[id]
+	if ok {
+		delete(p.pendingIDs, id)
+	}
+	return method, ok
+}
+
+// jsonrpcMessage is the internal JSON-RPC 2.0 message structure for deserialization.
+type jsonrpcMessage struct {
+	JSONRPC string           `json:"jsonrpc"`
+	Method  string           `json:"method"`
+	ID      json.RawMessage  `json:"id"`
+	Params  json.RawMessage  `json:"params"`
+	Result  json.RawMessage  `json:"result"`
+	Error   *jsonrpcError    `json:"error"`
+}
+
+// jsonrpcError represents a JSON-RPC 2.0 error object.
+type jsonrpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// initializeParams holds the parsed params of an initialize request.
+type initializeParams struct {
+	ProtocolVersion string `json:"protocolVersion"`
+	Capabilities    interface{} `json:"capabilities"`
+	ClientInfo      struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	} `json:"clientInfo"`
+}
+
+// toolsCallParams holds the parsed params of a tools/call request.
+type toolsCallParams struct {
+	Name      string                 `json:"name"`
+	Arguments map[string]interface{} `json:"arguments"`
+}
+
+// toolsListResult holds the parsed result of a tools/list response.
+type toolsListResult struct {
+	Tools []rawToolInfo `json:"tools"`
+}
+
+// rawToolInfo is the JSON shape of an MCP tool in a tools/list response.
+type rawToolInfo struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"inputSchema"`
+}
+
+// idToString normalizes a JSON-RPC id (which can be a number or string) to a string.
+func idToString(raw json.RawMessage) string {
+	if raw == nil {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var n float64
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return fmt.Sprintf("%g", n)
+	}
+	return string(raw)
+}
+
+// ProcessRequest parses a single MCP JSON-RPC request body.
+func (p *MCPParser) ProcessRequest(_ context.Context, _ map[string]string, body []byte) (*protocol.ParsedRequest, error) {
+	if len(body) == 0 {
+		return nil, errors.New("empty request body")
+	}
+
+	var msg jsonrpcMessage
+	if err := json.Unmarshal(body, &msg); err != nil {
+		return nil, fmt.Errorf("invalid JSON-RPC: %w", err)
+	}
+
+	id := idToString(msg.ID)
+
+	// Track request ID for response correlation
+	if id != "" && msg.Method != "" {
+		p.TrackRequest(id, msg.Method)
+	}
+
+	result := &protocol.ParsedRequest{
+		Protocol: "mcp",
+		Method:   msg.Method,
+		Metadata: make(map[string]interface{}),
+	}
+
+	switch msg.Method {
+	case "initialize":
+		result.MessageType = "mcp.session.init"
+		if msg.Params != nil {
+			var params initializeParams
+			if err := json.Unmarshal(msg.Params, &params); err == nil {
+				result.Metadata["protocol_version"] = params.ProtocolVersion
+				result.Metadata["client_name"] = params.ClientInfo.Name
+				result.Metadata["client_version"] = params.ClientInfo.Version
+				result.Metadata["capabilities"] = params.Capabilities
+			}
+		}
+
+	case "tools/list":
+		result.MessageType = "mcp.tools.list"
+
+	case "tools/call":
+		result.MessageType = "mcp.tool.call"
+		if msg.Params != nil {
+			var params toolsCallParams
+			if err := json.Unmarshal(msg.Params, &params); err == nil {
+				result.Metadata["tool_name"] = params.Name
+				result.Metadata["tool_arguments"] = params.Arguments
+			}
+		}
+
+	default:
+		// Unknown method — still return a result
+		result.MessageType = "mcp.unknown"
+	}
+
+	result.Metadata["jsonrpc_id"] = id
+
+	return result, nil
 }
 
 // ProcessRequestBatch parses a batched array of MCP JSON-RPC requests.
-func (p *MCPParser) ProcessRequestBatch(_ context.Context, _ map[string]string, _ []byte) ([]*protocol.ParsedRequest, error) {
-	return nil, errors.New("not implemented")
+func (p *MCPParser) ProcessRequestBatch(ctx context.Context, headers map[string]string, body []byte) ([]*protocol.ParsedRequest, error) {
+	if len(body) == 0 {
+		return nil, errors.New("empty request body")
+	}
+
+	var messages []json.RawMessage
+	if err := json.Unmarshal(body, &messages); err != nil {
+		return nil, fmt.Errorf("invalid JSON-RPC batch: %w", err)
+	}
+
+	results := make([]*protocol.ParsedRequest, 0, len(messages))
+	for _, raw := range messages {
+		result, err := p.ProcessRequest(ctx, headers, raw)
+		if err != nil {
+			return nil, fmt.Errorf("batch item error: %w", err)
+		}
+		results = append(results, result)
+	}
+
+	return results, nil
 }
 
-// ProcessResponse parses an MCP JSON-RPC response.
-func (p *MCPParser) ProcessResponse(_ context.Context, _ map[string]string, _ []byte) (*protocol.ParsedResponse, error) {
-	return nil, errors.New("not implemented")
+// ProcessResponse parses an MCP JSON-RPC response body, correlating it with a
+// previously tracked request ID to determine the response type.
+func (p *MCPParser) ProcessResponse(_ context.Context, _ map[string]string, body []byte) (*protocol.ParsedResponse, error) {
+	if len(body) == 0 {
+		return nil, errors.New("empty response body")
+	}
+
+	var msg jsonrpcMessage
+	if err := json.Unmarshal(body, &msg); err != nil {
+		return nil, fmt.Errorf("invalid JSON-RPC: %w", err)
+	}
+
+	id := idToString(msg.ID)
+
+	// Correlate response with pending request
+	method, found := p.lookupAndRemovePending(id)
+
+	result := &protocol.ParsedResponse{
+		Protocol: "mcp",
+		Method:   method,
+		Metadata: make(map[string]interface{}),
+	}
+
+	result.Metadata["jsonrpc_id"] = id
+
+	if msg.Error != nil {
+		result.MessageType = "mcp.error"
+		result.Metadata["error_code"] = msg.Error.Code
+		result.Metadata["error_message"] = msg.Error.Message
+		return result, nil
+	}
+
+	if !found {
+		result.MessageType = "mcp.response"
+		return result, nil
+	}
+
+	switch method {
+	case "initialize":
+		result.MessageType = "mcp.session.init"
+
+	case "tools/list":
+		result.MessageType = "mcp.tools.list"
+		if msg.Result != nil {
+			var toolsResult toolsListResult
+			if err := json.Unmarshal(msg.Result, &toolsResult); err == nil {
+				tools := make([]ToolInfo, len(toolsResult.Tools))
+				for i, t := range toolsResult.Tools {
+					tools[i] = ToolInfo{
+						Name:        t.Name,
+						Description: t.Description,
+						InputSchema: t.InputSchema,
+					}
+				}
+				result.Metadata["tools"] = tools
+			}
+		}
+
+	case "tools/call":
+		result.MessageType = "mcp.tool.response"
+
+	default:
+		result.MessageType = "mcp.response"
+	}
+
+	return result, nil
 }
 
 // ProcessStreamChunk is a no-op for MCP since MCP uses HTTP request-response,
