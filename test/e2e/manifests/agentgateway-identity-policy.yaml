@@ -1,0 +1,23 @@
+# AgentGateway transformation policy for native identity resolution.
+# Injects X-Forwarded-For with the downstream pod's source IP address
+# so that the ExtProc server can resolve agent identity via PodCache.
+#
+# This policy uses "set" (not "add") to prevent client-supplied XFF spoofing.
+# Identity is derived exclusively from the TCP connection source IP.
+#
+# Phase: PreRouting — executes before the ExtProc policy (which runs at route level).
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: panoptium-identity-headers
+  namespace: panoptium-system
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: e2e-gateway
+  traffic:
+    transformation:
+      request:
+        set:
+          x-forwarded-for: source.address

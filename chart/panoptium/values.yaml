@@ -118,6 +118,15 @@ tolerations: []
 # -- Affinity rules
 affinity: {}
 
+# AgentGateway integration
+gateway:
+  identityPolicy:
+    # -- Deploy an AgentgatewayPolicy that injects X-Forwarded-For
+    #    with the downstream pod's source IP for native identity resolution.
+    enabled: false
+    # -- Name of the Gateway resource to target
+    gatewayName: "agentgateway"
+
 # -- Namespace exclusions for the mutating webhook
 excludedNamespaces:
   - kube-system

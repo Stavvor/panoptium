@@ -1,0 +1,25 @@
+{{- if .Values.gateway.identityPolicy.enabled }}
+# AgentGateway transformation policy for native identity resolution.
+# Injects X-Forwarded-For with the downstream pod's source IP address
+# so that the ExtProc server can resolve agent identity via PodCache.
+#
+# Uses "set" (not "add") to prevent client-supplied XFF spoofing.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: {{ include "panoptium.fullname" . }}-identity-headers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "panoptium.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-policy
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: {{ .Values.gateway.identityPolicy.gatewayName | default "agentgateway" }}
+  traffic:
+    transformation:
+      request:
+        set:
+          x-forwarded-for: source.address
+{{- end }}

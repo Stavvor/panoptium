@@ -221,6 +221,7 @@ log_info "Mock LLM is ready."
 log_info "=== Phase 7: Integration wiring ==="
 kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-backend.yaml"
 kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-route.yaml"
+kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-identity-policy.yaml"
 kubectl apply -f "${SCRIPT_DIR}/manifests/agentgateway-extproc-policy.yaml"
 
 # Create ClusterRoleBinding for metrics access (required by E2E metric assertions)
