@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"math"
 	"os/exec"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1070,9 +1070,7 @@ spec:
 			}
 
 			By("calculating p50 and p99 latencies")
-			sort.Slice(latencies, func(i, j int) bool {
-				return latencies[i] < latencies[j]
-			})
+			slices.Sort(latencies)
 
 			p50Idx := int(math.Ceil(float64(len(latencies))*0.50)) - 1
 			p99Idx := int(math.Ceil(float64(len(latencies))*0.99)) - 1
