@@ -153,8 +153,10 @@ type CELDef struct {
 
 // compiledSignature holds a compiled signature with precompiled regexps.
 type compiledSignature struct {
-	def      SignatureDefinition
-	patterns []compiledPattern
+	def         SignatureDefinition
+	patterns    []compiledPattern
+	celEvaluator *CELEvaluator
+	celDefs     []CELDef
 }
 
 // compiledPattern holds a precompiled regexp with its weight and target.
@@ -179,11 +181,12 @@ func NewCompiledSignatureRegistry() *CompiledSignatureRegistry {
 }
 
 // AddSignature compiles and adds a signature to the registry.
-// Returns an error if any regex pattern fails to compile.
+// Returns an error if any regex pattern or CEL expression fails to compile.
 func (r *CompiledSignatureRegistry) AddSignature(def SignatureDefinition) error {
 	compiled := &compiledSignature{
 		def:      def,
 		patterns: make([]compiledPattern, 0, len(def.Patterns)),
+		celDefs:  def.CELExpressions,
 	}
 
 	for _, pd := range def.Patterns {
@@ -196,6 +199,18 @@ func (r *CompiledSignatureRegistry) AddSignature(def SignatureDefinition) error 
 			weight: pd.Weight,
 			target: pd.Target,
 		})
+	}
+
+	// Compile CEL expressions if present
+	if len(def.CELExpressions) > 0 {
+		evaluator := NewCELEvaluator()
+		for i, celDef := range def.CELExpressions {
+			exprName := fmt.Sprintf("%s-cel-%d", def.Name, i)
+			if err := evaluator.Compile(exprName, celDef.Expression); err != nil {
+				return fmt.Errorf("invalid CEL in signature %q expression %d: %w", def.Name, i, err)
+			}
+		}
+		compiled.celEvaluator = evaluator
 	}
 
 	r.mu.Lock()
@@ -239,6 +254,18 @@ func (r *CompiledSignatureRegistry) Match(_ context.Context, input MatchInput) (
 			if cp.re.MatchString(input.Content) {
 				indicators = append(indicators, cp.re.String())
 				scores = append(scores, cp.weight)
+			}
+		}
+
+		// Evaluate CEL expressions
+		if sig.celEvaluator != nil {
+			for i, celDef := range sig.celDefs {
+				exprName := fmt.Sprintf("%s-cel-%d", sig.def.Name, i)
+				matched, err := sig.celEvaluator.Evaluate(exprName, input.Content)
+				if err == nil && matched {
+					indicators = append(indicators, fmt.Sprintf("cel[%d]", i))
+					scores = append(scores, celDef.Weight)
+				}
 			}
 		}
 
