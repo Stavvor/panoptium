@@ -1,0 +1,25 @@
+{{- if .Values.threatSignatures.enabled }}
+apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: mcp-ignore-instructions
+  labels:
+    {{- include "panoptium.labels" . | nindent 4 }}
+    panoptium.io/managed-by: helm
+    panoptium.io/signature-set: default
+spec:
+  protocols:
+    - mcp
+  category: prompt_injection
+  severity: CRITICAL
+  mitreAtlas: "AML.T0051.000"
+  description: >-
+    Detects attempts to override the LLM's instructions by telling it to ignore
+    previous instructions. This is the most common prompt injection technique
+    used to hijack agent behavior.
+  detection:
+    patterns:
+      - regex: '(?i)ignore\s+(all\s+)?previous\s+instructions'
+        weight: 0.9
+        target: tool_description
+{{- end }}

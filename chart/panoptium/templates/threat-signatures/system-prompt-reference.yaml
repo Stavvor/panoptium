@@ -1,0 +1,24 @@
+{{- if .Values.threatSignatures.enabled }}
+apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: mcp-system-prompt-reference
+  labels:
+    {{- include "panoptium.labels" . | nindent 4 }}
+    panoptium.io/managed-by: helm
+    panoptium.io/signature-set: default
+spec:
+  protocols:
+    - mcp
+  category: prompt_injection
+  severity: LOW
+  description: >-
+    Detects references to "system prompt" within tool descriptions. While not
+    always malicious, this is a common reconnaissance indicator preceding more
+    targeted prompt injection attacks.
+  detection:
+    patterns:
+      - regex: '(?i)system\s+prompt'
+        weight: 0.4
+        target: tool_description
+{{- end }}

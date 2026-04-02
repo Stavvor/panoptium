@@ -1,0 +1,28 @@
+{{- if .Values.threatSignatures.enabled }}
+apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: mcp-delimiter-injection
+  labels:
+    {{- include "panoptium.labels" . | nindent 4 }}
+    panoptium.io/managed-by: helm
+    panoptium.io/signature-set: default
+spec:
+  protocols:
+    - mcp
+  category: prompt_injection
+  severity: HIGH
+  mitreAtlas: "AML.T0051.002"
+  description: >-
+    Detects delimiter injection attacks where tool descriptions embed XML-like
+    closing or opening tags (e.g., </tool_description>, <system>) to break out
+    of the tool description context and inject instructions at the system level.
+  detection:
+    patterns:
+      - regex: '(?i)</(tool_description|system|instructions|prompt)>'
+        weight: 0.85
+        target: tool_description
+      - regex: '(?i)<(system|instructions|prompt)>'
+        weight: 0.85
+        target: tool_description
+{{- end }}

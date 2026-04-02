@@ -127,6 +127,11 @@ gateway:
     # -- Name of the Gateway resource to target
     gatewayName: "agentgateway"
 
+# Threat Signatures (CRD-based detection)
+threatSignatures:
+  # -- Deploy default threat signature CRDs
+  enabled: true
+
 # -- Namespace exclusions for the mutating webhook
 excludedNamespaces:
   - kube-system

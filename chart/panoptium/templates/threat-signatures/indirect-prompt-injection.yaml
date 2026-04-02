@@ -1,0 +1,33 @@
+{{- if .Values.threatSignatures.enabled }}
+apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: indirect-prompt-injection
+  labels:
+    {{- include "panoptium.labels" . | nindent 4 }}
+    panoptium.io/managed-by: helm
+    panoptium.io/signature-set: default
+spec:
+  protocols:
+    - mcp
+    - a2a
+    - gemini
+  category: prompt_injection
+  severity: HIGH
+  mitreAtlas: "AML.T0051.001"
+  description: >-
+    Detects indirect prompt injection via hidden instructions embedded in
+    tool arguments or message content. Catches patterns like "IMPORTANT:",
+    "INSTRUCTION:", or "[SYSTEM]" markers that attempt to inject directives.
+  detection:
+    patterns:
+      - regex: '(?i)\b(IMPORTANT|INSTRUCTION|DIRECTIVE|SYSTEM\s*MESSAGE)\s*:'
+        weight: 0.7
+        target: tool_args
+      - regex: '(?i)\[SYSTEM\]|\[ADMIN\]|\[OVERRIDE\]'
+        weight: 0.8
+        target: tool_args
+      - regex: '(?i)\b(IMPORTANT|INSTRUCTION|DIRECTIVE|SYSTEM\s*MESSAGE)\s*:'
+        weight: 0.7
+        target: message_content
+{{- end }}
