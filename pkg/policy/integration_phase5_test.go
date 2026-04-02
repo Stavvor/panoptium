@@ -171,6 +171,7 @@ func TestIntegration_MultiPolicyComposition(t *testing.T) {
 	event := &policy.PolicyEvent{
 		Category:    "kernel",
 		Subcategory: "process_exec",
+		Namespace:   "default",
 		PodLabels:   map[string]string{"app": "agent"},
 		Fields:      map[string]interface{}{"processName": "curl"},
 	}
@@ -190,6 +191,7 @@ func TestIntegration_MultiPolicyComposition(t *testing.T) {
 	event2 := &policy.PolicyEvent{
 		Category:    "kernel",
 		Subcategory: "process_exec",
+		Namespace:   "default",
 		PodLabels:   map[string]string{"app": "agent"},
 		Fields:      map[string]interface{}{"processName": "python"},
 	}

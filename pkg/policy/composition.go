@@ -77,6 +77,9 @@ func (r *PolicyCompositionResolver) Evaluate(policies []*CompiledPolicy, event *
 		return d, nil
 	}
 
+	// Filter out disabled policies — they are completely skipped.
+	policies = filterByEnforcementMode(policies)
+
 	// Filter policies by TargetSelector — only policies whose selector
 	// matches the event's PodLabels are evaluated.
 	policies = filterByTargetSelector(policies, event)
@@ -152,18 +155,27 @@ func (r *PolicyCompositionResolver) Evaluate(policies []*CompiledPolicy, event *
 
 	// If there's only one candidate, use it directly
 	var best *Decision
+	var bestPolicy *CompiledPolicy
 	if len(candidates) == 1 {
 		best = candidates[0].decision
+		bestPolicy = candidates[0].policy
 	} else {
 		// Multiple candidates at same priority — apply allow-override.
 		// An explicit "allow" at equal priority overrides "deny".
 		best = candidates[0].decision
+		bestPolicy = candidates[0].policy
 		for _, c := range candidates {
 			if c.decision.Action.Type == "allow" {
 				best = c.decision
+				bestPolicy = c.policy
 				break
 			}
 		}
+	}
+
+	// Set AuditOnly flag if the winning policy is in audit mode.
+	if bestPolicy.EnforcementMode == v1alpha1.EnforcementModeAudit {
+		best.AuditOnly = true
 	}
 
 	// Post-match rate limit check: if the matched rule has a rateLimit action
@@ -219,13 +231,37 @@ func (r *PolicyCompositionResolver) applyRateLimitCheck(decision *Decision, even
 	return decision
 }
 
+// filterByEnforcementMode removes policies with EnforcementMode=disabled from
+// evaluation. Disabled policies are completely skipped — they do not affect the
+// decision or any other policy's evaluation.
+func filterByEnforcementMode(policies []*CompiledPolicy) []*CompiledPolicy {
+	filtered := make([]*CompiledPolicy, 0, len(policies))
+	for _, pol := range policies {
+		if pol.EnforcementMode != v1alpha1.EnforcementModeDisabled {
+			filtered = append(filtered, pol)
+		}
+	}
+	return filtered
+}
+
 // filterByTargetSelector returns only the policies whose TargetSelector matches
-// the event's PodLabels. Policies with a nil or empty TargetSelector match all pods.
+// the event's PodLabels AND whose namespace scope matches the event's namespace.
+//
+// Namespace scoping rules:
+//   - Namespace-scoped policies (IsClusterScoped=false) only match pods in their own namespace.
+//   - Cluster-scoped policies (IsClusterScoped=true) match pods in any namespace.
+//   - Policies with a nil or empty TargetSelector match all pods (within scope).
 func filterByTargetSelector(policies []*CompiledPolicy, event *PolicyEvent) []*CompiledPolicy {
 	podLabels := labels.Set(event.PodLabels)
 	filtered := make([]*CompiledPolicy, 0, len(policies))
 
 	for _, pol := range policies {
+		// Namespace scoping: namespace-scoped policies only match pods
+		// in their own namespace.
+		if !pol.IsClusterScoped && pol.Namespace != event.Namespace {
+			continue
+		}
+
 		if matchesTargetSelector(pol, podLabels) {
 			filtered = append(filtered, pol)
 		}

@@ -46,6 +46,7 @@ func TestEnforcementMode_DisabledSkipped(t *testing.T) {
 	event := &PolicyEvent{
 		Category:    "kernel",
 		Subcategory: "process_exec",
+		Namespace:   "default",
 		Fields:      map[string]interface{}{"processName": "curl"},
 	}
 
@@ -85,6 +86,7 @@ func TestEnforcementMode_AuditSetsAuditOnly(t *testing.T) {
 	event := &PolicyEvent{
 		Category:    "kernel",
 		Subcategory: "process_exec",
+		Namespace:   "default",
 		Fields:      map[string]interface{}{"processName": "curl"},
 	}
 
@@ -127,6 +129,7 @@ func TestEnforcementMode_EnforcingNormal(t *testing.T) {
 	event := &PolicyEvent{
 		Category:    "kernel",
 		Subcategory: "process_exec",
+		Namespace:   "default",
 		Fields:      map[string]interface{}{"processName": "curl"},
 	}
 
@@ -175,6 +178,7 @@ func TestEnforcementMode_GlobalAuditOverridesPerPolicyEnforcing(t *testing.T) {
 	event := &PolicyEvent{
 		Category:    "kernel",
 		Subcategory: "process_exec",
+		Namespace:   "default",
 		Fields:      map[string]interface{}{"processName": "curl"},
 	}
 
@@ -228,6 +232,7 @@ func TestEnforcementMode_DisabledDoesNotBlockLowerPriority(t *testing.T) {
 	event := &PolicyEvent{
 		Category:    "kernel",
 		Subcategory: "process_exec",
+		Namespace:   "default",
 		Fields:      map[string]interface{}{"processName": "curl"},
 	}
 
