@@ -195,10 +195,10 @@ func TestProcess_BidirectionalStream(t *testing.T) {
 					":method", "POST",
 					"host", "api.openai.com",
 					"content-type", "application/json",
-					"x-panoptium-agent-id", "agent-test",
-					"x-panoptium-client-ip", "10.0.0.1",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-stream-1",
+	
+	
+	
+	
 				),
 			},
 		},
@@ -314,8 +314,8 @@ done:
 	for _, evt := range events {
 		if evt.EventType() == eventbus.EventTypeLLMRequestStart {
 			foundStart = true
-			if evt.RequestID() != "req-stream-1" {
-				t.Errorf("LLMRequestStart RequestID = %q, want %q", evt.RequestID(), "req-stream-1")
+			if _, parseErr := uuid.Parse(evt.RequestID()); parseErr != nil {
+				t.Errorf("LLMRequestStart RequestID %q is not a valid UUID: %v", evt.RequestID(), parseErr)
 			}
 		}
 	}
@@ -381,9 +381,9 @@ func TestProcess_RequestHeaderExtraction(t *testing.T) {
 					":method", "POST",
 					"host", "api.openai.com",
 					"content-type", "application/json",
-					"x-panoptium-agent-id", "test-agent",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-header-test",
+	
+	
+	
 				),
 			},
 		},
@@ -515,12 +515,10 @@ func TestProcess_AgentIdentityExtraction(t *testing.T) {
 				t.Fatalf("failed to open stream: %v", err)
 			}
 
-			reqID := "req-identity-" + tt.name
 			headers := []string{
 				":path", "/v1/chat/completions",
 				":method", "POST",
 				"host", "api.openai.com",
-				"x-request-id", reqID,
 			}
 			if tt.sourceIP != "" {
 				headers = append(headers, "x-forwarded-for", tt.sourceIP)
@@ -617,9 +615,9 @@ func TestProcess_StreamedRequestBodyAssembly(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-panoptium-agent-id", "agent-body-test",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-body-assembly",
+	
+	
+	
 				),
 			},
 		},
@@ -717,9 +715,9 @@ func TestProcess_StreamedResponseBody(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-panoptium-agent-id", "agent-response",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-response-1",
+	
+	
+	
 				),
 			},
 		},
@@ -857,7 +855,7 @@ func TestProcess_PassiveMode(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-passive",
+	
 				),
 			},
 		},
@@ -1047,7 +1045,7 @@ func TestProcess_EndOfStreamComplete(t *testing.T) {
 					":method", "POST",
 					"host", "api.openai.com",
 					"x-forwarded-for", "10.0.0.99",
-					"x-request-id", "req-complete-1",
+	
 				),
 			},
 		},
@@ -1108,8 +1106,8 @@ func TestProcess_EndOfStreamComplete(t *testing.T) {
 		if completeEvt.Duration <= 0 {
 			t.Error("Duration should be positive")
 		}
-		if completeEvt.RequestID() != "req-complete-1" {
-			t.Errorf("RequestID = %q, want %q", completeEvt.RequestID(), "req-complete-1")
+		if _, parseErr := uuid.Parse(completeEvt.RequestID()); parseErr != nil {
+			t.Errorf("RequestID %q is not a valid UUID: %v", completeEvt.RequestID(), parseErr)
 		}
 		// Verify agent identity is present
 		agentInfo := completeEvt.Identity()
@@ -1172,7 +1170,6 @@ func TestProcess_ConcurrentStreams(t *testing.T) {
 			}
 
 			sourceIP := fmt.Sprintf("10.0.10.%d", idx)
-			reqID := fmt.Sprintf("req-concurrent-%d", idx)
 
 			// Request headers with X-Forwarded-For for PodCache identity resolution
 			err = stream.Send(&extprocv3.ProcessingRequest{
@@ -1183,7 +1180,6 @@ func TestProcess_ConcurrentStreams(t *testing.T) {
 							":method", "POST",
 							"host", "api.openai.com",
 							"x-forwarded-for", sourceIP,
-							"x-request-id", reqID,
 						),
 					},
 				},
@@ -1266,7 +1262,7 @@ func TestProcess_ConcurrentStreams(t *testing.T) {
 
 	wg.Wait()
 
-	// Collect all completion events
+	// Collect all completion events, keyed by agent ID for matching
 	completeEvents := make(map[string]*eventbus.LLMRequestCompleteEvent)
 	timeout := time.After(5 * time.Second)
 	for len(completeEvents) < numStreams {
@@ -1276,7 +1272,11 @@ func TestProcess_ConcurrentStreams(t *testing.T) {
 			if !ok {
 				continue
 			}
-			completeEvents[completeEvt.RequestID()] = completeEvt
+			// Verify request ID is a valid server-generated UUID
+			if _, err := uuid.Parse(completeEvt.RequestID()); err != nil {
+				t.Errorf("completion event has invalid UUID request ID: %q", completeEvt.RequestID())
+			}
+			completeEvents[completeEvt.Identity().ID] = completeEvt
 		case <-timeout:
 			t.Fatalf("timed out waiting for completion events, got %d of %d", len(completeEvents), numStreams)
 		}
@@ -1284,21 +1284,16 @@ func TestProcess_ConcurrentStreams(t *testing.T) {
 
 	// Verify each stream produced the correct event
 	for i := 0; i < numStreams; i++ {
-		reqID := fmt.Sprintf("req-concurrent-%d", i)
-		evt, ok := completeEvents[reqID]
+		wantAgent := fmt.Sprintf("agent-%d", i)
+		evt, ok := completeEvents[wantAgent]
 		if !ok {
-			t.Errorf("missing completion event for %s", reqID)
+			t.Errorf("missing completion event for agent %s", wantAgent)
 			continue
 		}
 
 		expectedTokens := i + 1
 		if evt.OutputTokens != expectedTokens {
 			t.Errorf("stream %d: OutputTokens = %d, want %d", i, evt.OutputTokens, expectedTokens)
-		}
-
-		wantAgent := fmt.Sprintf("agent-%d", i)
-		if evt.Identity().ID != wantAgent {
-			t.Errorf("stream %d: AgentID = %q, want %q", i, evt.Identity().ID, wantAgent)
 		}
 	}
 }
@@ -1329,9 +1324,9 @@ func TestProcess_MetricsComputation(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-panoptium-agent-id", "agent-metrics",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-metrics-1",
+	
+	
+	
 				),
 			},
 		},
@@ -1439,7 +1434,7 @@ func TestProcess_UnknownObserver(t *testing.T) {
 					":path", "/unknown/api/endpoint",
 					":method", "POST",
 					"host", "unknown.example.com",
-					"x-request-id", "req-unknown",
+	
 				),
 			},
 		},
@@ -1556,7 +1551,7 @@ func TestProcess_MultiEventSSEFrame(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-multi-sse",
+	
 				),
 			},
 		},
@@ -1651,7 +1646,7 @@ func TestProcess_StreamEndTriggersFinalize(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-finalize",
+	
 				),
 			},
 		},
@@ -1744,9 +1739,9 @@ func TestProcess_AnthropicProvider(t *testing.T) {
 					":path", "/v1/messages",
 					":method", "POST",
 					"host", "api.anthropic.com",
-					"x-panoptium-agent-id", "agent-anthropic",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-anthropic-1",
+	
+	
+	
 				),
 			},
 		},
@@ -1873,7 +1868,7 @@ func TestProcess_RequestBodyEchoesViaBodyMutation(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-body-echo-1",
+	
 				),
 			},
 		},
@@ -1955,7 +1950,7 @@ func TestProcess_ResponseBodyEchoesViaBodyMutation(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-resp-echo-1",
+	
 				),
 			},
 		},
@@ -2075,7 +2070,7 @@ func TestProcess_MultiChunkRequestBodyEchoesIndividually(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-multi-chunk-1",
+	
 				),
 			},
 		},
@@ -2167,9 +2162,9 @@ func TestProcess_MultiChunkResponseBodyEchoesWithTokenParsing(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-panoptium-agent-id", "agent-echo-tokens",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-echo-tokens-1",
+	
+	
+	
 				),
 			},
 		},
@@ -2316,7 +2311,7 @@ func TestProcess_EndOfStreamOnlyOnFinalChunk(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-eos-test-1",
+	
 				),
 			},
 		},
@@ -2443,7 +2438,7 @@ func TestRequestBody_UsesEmptyBodyResponse(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-buffered-variant",
+	
 				),
 			},
 		},
@@ -2524,7 +2519,7 @@ func TestResponseBody_UsesStreamedResponse(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-resp-streamed",
+	
 				),
 			},
 		},
@@ -2649,7 +2644,7 @@ func TestMultiChunkBody_StreamedResponseEndOfStream(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-request-id", "req-multichunk-streamed",
+	
 				),
 			},
 		},

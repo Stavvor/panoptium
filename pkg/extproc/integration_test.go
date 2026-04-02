@@ -25,6 +25,7 @@ import (
 	"time"
 
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/google/uuid"
 
 	"github.com/panoptium/panoptium/pkg/eventbus"
 	"github.com/panoptium/panoptium/pkg/identity"
@@ -94,7 +95,7 @@ func collectEvents(sub *eventbus.Subscription, expectedCount int, timeout time.D
 func sendOpenAIStreamingRequest(
 	t *testing.T,
 	stream extprocv3.ExternalProcessor_ProcessClient,
-	sourceIP, requestID, model string,
+	sourceIP, model string,
 	tokenContents []string,
 ) {
 	t.Helper()
@@ -112,7 +113,6 @@ func sendOpenAIStreamingRequest(
 					"host", "api.openai.com",
 					"content-type", "application/json",
 					"x-forwarded-for", sourceIP,
-					"x-request-id", requestID,
 				),
 			},
 		},
@@ -210,7 +210,7 @@ func TestIntegration_OpenAIStreamingWithEnrolledPod(t *testing.T) {
 	}
 
 	tokens := []string{"Hello", " from", " the", " AI", " assistant"}
-	sendOpenAIStreamingRequest(t, stream, "10.0.0.1", "req-openai-1", "gpt-4", tokens)
+	sendOpenAIStreamingRequest(t, stream, "10.0.0.1", "gpt-4", tokens)
 
 	// Expect: 1 LLMRequestStart + 5 LLMTokenChunk + 1 LLMRequestComplete = 7 events
 	events := collectEvents(sub, 7, 5*time.Second)
@@ -236,9 +236,10 @@ func TestIntegration_OpenAIStreamingWithEnrolledPod(t *testing.T) {
 		t.Fatalf("expected 1 LLMRequestStart event, got %d", len(startEvts))
 	}
 	start := startEvts[0]
-	if start.RequestID() != "req-openai-1" {
-		t.Errorf("LLMRequestStart.RequestID = %q, want %q", start.RequestID(), "req-openai-1")
+	if _, parseErr := uuid.Parse(start.RequestID()); parseErr != nil {
+		t.Errorf("LLMRequestStart.RequestID %q is not a valid UUID: %v", start.RequestID(), parseErr)
 	}
+	streamRequestID := start.RequestID() // capture for cross-event consistency checks
 	if start.Protocol() != eventbus.ProtocolLLM {
 		t.Errorf("LLMRequestStart.Protocol = %q, want %q", start.Protocol(), eventbus.ProtocolLLM)
 	}
@@ -278,8 +279,8 @@ func TestIntegration_OpenAIStreamingWithEnrolledPod(t *testing.T) {
 		if chunk.TokenIndex != i {
 			t.Errorf("LLMTokenChunk[%d].TokenIndex = %d, want %d", i, chunk.TokenIndex, i)
 		}
-		if chunk.RequestID() != "req-openai-1" {
-			t.Errorf("LLMTokenChunk[%d].RequestID = %q, want %q", i, chunk.RequestID(), "req-openai-1")
+		if chunk.RequestID() != streamRequestID {
+			t.Errorf("LLMTokenChunk[%d].RequestID = %q, want %q (same as start event)", i, chunk.RequestID(), streamRequestID)
 		}
 		if chunk.Provider() != eventbus.ProviderOpenAI {
 			t.Errorf("LLMTokenChunk[%d].Provider = %q, want %q", i, chunk.Provider(), eventbus.ProviderOpenAI)
@@ -304,8 +305,8 @@ func TestIntegration_OpenAIStreamingWithEnrolledPod(t *testing.T) {
 	if complete.Duration <= 0 {
 		t.Error("LLMRequestComplete.Duration should be > 0")
 	}
-	if complete.RequestID() != "req-openai-1" {
-		t.Errorf("LLMRequestComplete.RequestID = %q, want %q", complete.RequestID(), "req-openai-1")
+	if complete.RequestID() != streamRequestID {
+		t.Errorf("LLMRequestComplete.RequestID = %q, want %q (same as start event)", complete.RequestID(), streamRequestID)
 	}
 	completeIdentity := complete.Identity()
 	if completeIdentity.ID != "agent-summarizer" {
@@ -342,9 +343,8 @@ func TestIntegration_OpenAIMultiEventSSEFrame(t *testing.T) {
 					":path", "/v1/chat/completions",
 					":method", "POST",
 					"host", "api.openai.com",
-					"x-panoptium-agent-id", "agent-multi-sse",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-multi-sse",
+	
+	
 				),
 			},
 		},
@@ -465,9 +465,8 @@ func TestIntegration_AnthropicStreamingRequest(t *testing.T) {
 					":method", "POST",
 					"host", "api.anthropic.com",
 					"content-type", "application/json",
-					"x-panoptium-agent-id", "agent-claude",
-					"x-panoptium-auth-type", "jwt",
-					"x-request-id", "req-anthropic-1",
+	
+	
 				),
 			},
 		},
@@ -623,7 +622,7 @@ func TestIntegration_EnrolledPodIdentityWithPodCache(t *testing.T) {
 					":method", "POST",
 					"host", "api.openai.com",
 					"x-forwarded-for", "10.0.5.42",
-					"x-request-id", "req-podcache-1",
+	
 				),
 			},
 		},
@@ -777,32 +776,28 @@ func TestIntegration_ConcurrentStreamsFromDifferentAgents(t *testing.T) {
 	defer bus.Unsubscribe(sub)
 
 	agents := []struct {
-		podName   string
-		sourceIP  string
-		requestID string
-		model     string
-		tokens    []string
+		podName  string
+		sourceIP string
+		model    string
+		tokens   []string
 	}{
 		{
-			podName:   "agent-alpha",
-			sourceIP:  "10.0.0.1",
-			requestID: "req-alpha-1",
-			model:     "gpt-4",
-			tokens:    []string{"Alpha", " response", " here"},
+			podName:  "agent-alpha",
+			sourceIP: "10.0.0.1",
+			model:    "gpt-4",
+			tokens:   []string{"Alpha", " response", " here"},
 		},
 		{
-			podName:   "agent-beta",
-			sourceIP:  "10.0.0.2",
-			requestID: "req-beta-1",
-			model:     "gpt-3.5-turbo",
-			tokens:    []string{"Beta", " answering"},
+			podName:  "agent-beta",
+			sourceIP: "10.0.0.2",
+			model:    "gpt-3.5-turbo",
+			tokens:   []string{"Beta", " answering"},
 		},
 		{
-			podName:   "agent-gamma",
-			sourceIP:  "10.0.0.3",
-			requestID: "req-gamma-1",
-			model:     "gpt-4",
-			tokens:    []string{"Gamma", " data", " output", " done"},
+			podName:  "agent-gamma",
+			sourceIP: "10.0.0.3",
+			model:    "gpt-4",
+			tokens:   []string{"Gamma", " data", " output", " done"},
 		},
 	}
 
@@ -811,11 +806,10 @@ func TestIntegration_ConcurrentStreamsFromDifferentAgents(t *testing.T) {
 	for _, ag := range agents {
 		wg.Add(1)
 		go func(agent struct {
-			podName   string
-			sourceIP  string
-			requestID string
-			model     string
-			tokens    []string
+			podName  string
+			sourceIP string
+			model    string
+			tokens   []string
 		}) {
 			defer wg.Done()
 
@@ -830,7 +824,7 @@ func TestIntegration_ConcurrentStreamsFromDifferentAgents(t *testing.T) {
 
 			sendOpenAIStreamingRequest(
 				t, stream,
-				agent.sourceIP, agent.requestID, agent.model,
+				agent.sourceIP, agent.model,
 				agent.tokens,
 			)
 		}(ag)
@@ -842,17 +836,22 @@ func TestIntegration_ConcurrentStreamsFromDifferentAgents(t *testing.T) {
 	// Alpha: 1+3+1=5, Beta: 1+2+1=4, Gamma: 1+4+1=6 => 15 total
 	events := collectEvents(sub, 15, 10*time.Second)
 
-	// Group events by request ID
-	eventsByReqID := make(map[string][]eventbus.Event)
+	// Group events by agent identity (pod name). Request IDs are server-generated
+	// UUIDs so we can't predict them; grouping by identity is the correct approach.
+	eventsByAgent := make(map[string][]eventbus.Event)
 	for _, evt := range events {
-		eventsByReqID[evt.RequestID()] = append(eventsByReqID[evt.RequestID()], evt)
+		agentID := evt.Identity().ID
+		if agentID == "" {
+			agentID = evt.Identity().SourceIP
+		}
+		eventsByAgent[agentID] = append(eventsByAgent[agentID], evt)
 	}
 
 	// Verify each agent's events
 	for _, ag := range agents {
-		agentEvents, ok := eventsByReqID[ag.requestID]
+		agentEvents, ok := eventsByAgent[ag.podName]
 		if !ok {
-			t.Errorf("no events found for agent %s (requestID=%s)", ag.podName, ag.requestID)
+			t.Errorf("no events found for agent %s", ag.podName)
 			continue
 		}
 
