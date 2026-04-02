@@ -147,6 +147,28 @@ spec:
                       - HIGH
                       - CRITICAL
                       type: string
+                    threatSignatures:
+                      description: |-
+                        ThreatSignatures optionally constrains this rule to fire only when a
+                        threat signature matching these criteria is detected.
+                      properties:
+                        categories:
+                          description: Categories matches signatures by attack category.
+                          items:
+                            type: string
+                          type: array
+                        names:
+                          description: Names matches specific threat signatures by
+                            name.
+                          items:
+                            type: string
+                          type: array
+                        severities:
+                          description: Severities matches signatures by severity level.
+                          items:
+                            type: string
+                          type: array
+                      type: object
                     trigger:
                       description: Trigger defines the event that activates this rule.
                       properties:

@@ -111,6 +111,23 @@ type Action struct {
 	Parameters map[string]string `json:"parameters,omitempty"`
 }
 
+// ThreatSignatureMatch defines criteria for matching threat signatures.
+// When multiple fields are specified, all must match (AND semantics).
+// Within each field, any value can match (OR semantics).
+type ThreatSignatureMatch struct {
+	// Names matches specific threat signatures by name.
+	// +optional
+	Names []string `json:"names,omitempty"`
+
+	// Categories matches signatures by attack category.
+	// +optional
+	Categories []string `json:"categories,omitempty"`
+
+	// Severities matches signatures by severity level.
+	// +optional
+	Severities []string `json:"severities,omitempty"`
+}
+
 // PolicyRule defines a single trigger-predicate-action rule within a PanoptiumPolicy.
 type PolicyRule struct {
 	// Name is a human-readable identifier for this rule.
@@ -127,6 +144,11 @@ type PolicyRule struct {
 	// Each predicate contains a CEL expression evaluated against the triggering event.
 	// +optional
 	Predicates []Predicate `json:"predicates,omitempty"`
+
+	// ThreatSignatures optionally constrains this rule to fire only when a
+	// threat signature matching these criteria is detected.
+	// +optional
+	ThreatSignatures *ThreatSignatureMatch `json:"threatSignatures,omitempty"`
 
 	// Action defines the response to take when the rule matches.
 	// +kubebuilder:validation:Required
