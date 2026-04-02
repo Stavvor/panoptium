@@ -105,6 +105,11 @@ func (s *ExtProcServer) SetPolicyEvaluator(evaluator PolicyEvaluator) {
 
 // streamState tracks the per-stream state for an active ExtProc bidirectional stream.
 type streamState struct {
+	// requestID is the server-generated correlation ID for this stream.
+	// Generated once at the start of Process() using uuid.New().String().
+	// Never read from client headers (trust inversion prevention).
+	requestID string
+
 	// obs is the selected ProtocolObserver for this stream (nil if no match).
 	obs observer.ProtocolObserver
 
@@ -134,7 +139,13 @@ func (s *ExtProcServer) Process(stream extprocv3.ExternalProcessor_ProcessServer
 	RecordStreamStart()
 	defer RecordStreamEnd()
 
-	state := &streamState{}
+	// Generate a server-side request ID per gRPC stream. Each stream
+	// corresponds to exactly one HTTP request, making the stream boundary
+	// a natural and non-spoofable correlation unit. Client-provided
+	// headers (x-request-id, etc.) are never used for correlation.
+	state := &streamState{
+		requestID: uuid.New().String(),
+	}
 
 	for {
 		req, err := stream.Recv()
@@ -198,15 +209,13 @@ func (s *ExtProcServer) handleRequestHeaders(ctx context.Context, state *streamS
 
 	path := httpHeaders.Get(":path")
 	method := httpHeaders.Get(":method")
-	// Request ID precedence: x-request-id (injected by AgentGateway) > server-generated UUID
-	requestID := httpHeaders.Get("x-request-id")
-	if requestID == "" {
-		requestID = uuid.New().String()
-	}
+	// Request ID is exclusively server-generated per gRPC stream — never
+	// read from client headers. Client-provided x-request-id is spoofable
+	// (same trust boundary as identity headers per ADR-003).
+	requestID := state.requestID
 
 	// Resolve agent identity from source IP via PodCache.
 	// Identity is derived exclusively from X-Forwarded-For -> PodCache lookup.
-	// No fallback to custom x-panoptium-* headers (removed per FR-2).
 	agentIdentity := s.resolver.Resolve(httpHeaders)
 
 	// Check for un-enrolled pods (source IP not found in PodCache)
