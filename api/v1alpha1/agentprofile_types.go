@@ -56,8 +56,8 @@ type BaselineSpec struct {
 	MaxRequestsPerMinute int32 `json:"maxRequestsPerMinute,omitempty"`
 }
 
-// PanoptiumAgentProfileSpec defines the desired state of a PanoptiumAgentProfile.
-type PanoptiumAgentProfileSpec struct {
+// AgentProfileSpec defines the desired state of a AgentProfile.
+type AgentProfileSpec struct {
 	// AgentSelector selects the agent pods this profile describes.
 	// +kubebuilder:validation:Required
 	AgentSelector metav1.LabelSelector `json:"agentSelector"`
@@ -79,8 +79,8 @@ type PanoptiumAgentProfileSpec struct {
 	LearningMode bool `json:"learningMode,omitempty"`
 }
 
-// PanoptiumAgentProfileStatus defines the observed state of a PanoptiumAgentProfile.
-type PanoptiumAgentProfileStatus struct {
+// AgentProfileStatus defines the observed state of a AgentProfile.
+type AgentProfileStatus struct {
 	// Conditions represent the latest available observations of the profile's state.
 	// Supported condition types: Ready, Learning, BaselineEstablished.
 	// +optional
@@ -113,29 +113,29 @@ type PanoptiumAgentProfileStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Ready status"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// PanoptiumAgentProfile is the Schema for the panoptiumagentprofiles API.
+// AgentProfile is the Schema for the agentprofiles API.
 // It defines behavioral baselines for AI agent pods, enabling anomaly detection
 // by establishing expected patterns of tool calls, resource usage, and network activity.
-type PanoptiumAgentProfile struct {
+type AgentProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired agent profile configuration.
-	Spec PanoptiumAgentProfileSpec `json:"spec,omitempty"`
+	Spec AgentProfileSpec `json:"spec,omitempty"`
 
 	// Status reflects the observed state of the agent profile.
-	Status PanoptiumAgentProfileStatus `json:"status,omitempty"`
+	Status AgentProfileStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// PanoptiumAgentProfileList contains a list of PanoptiumAgentProfile resources.
-type PanoptiumAgentProfileList struct {
+// AgentProfileList contains a list of AgentProfile resources.
+type AgentProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PanoptiumAgentProfile `json:"items"`
+	Items           []AgentProfile `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&PanoptiumAgentProfile{}, &PanoptiumAgentProfileList{})
+	SchemeBuilder.Register(&AgentProfile{}, &AgentProfileList{})
 }

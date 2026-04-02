@@ -104,8 +104,8 @@ type DetectionSpec struct {
 	CEL []CELRule `json:"cel,omitempty"`
 }
 
-// PanoptiumThreatSignatureSpec defines the desired state of a PanoptiumThreatSignature.
-type PanoptiumThreatSignatureSpec struct {
+// ThreatSignatureSpec defines the desired state of a ThreatSignature.
+type ThreatSignatureSpec struct {
 	// Protocols lists which protocols this signature applies to (empty = all).
 	// +optional
 	Protocols []string `json:"protocols,omitempty"`
@@ -134,8 +134,8 @@ type PanoptiumThreatSignatureSpec struct {
 	Description string `json:"description"`
 }
 
-// PanoptiumThreatSignatureStatus defines the observed state of a PanoptiumThreatSignature.
-type PanoptiumThreatSignatureStatus struct {
+// ThreatSignatureStatus defines the observed state of a ThreatSignature.
+type ThreatSignatureStatus struct {
 	// Conditions represent the latest available observations of the signature's state.
 	// Supported condition types: Ready, Invalid.
 	// +optional
@@ -163,30 +163,30 @@ type PanoptiumThreatSignatureStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Ready status"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// PanoptiumThreatSignature is the Schema for the panoptiumthreatsignatures API.
+// ThreatSignature is the Schema for the threatsignatures API.
 // It defines threat detection patterns that identify specific attack techniques
 // or suspicious behaviors in monitored AI agent traffic. Signatures are cluster-scoped
 // and consumed by protocol parsers via the ThreatMatcher interface.
-type PanoptiumThreatSignature struct {
+type ThreatSignature struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired threat signature configuration.
-	Spec PanoptiumThreatSignatureSpec `json:"spec,omitempty"`
+	Spec ThreatSignatureSpec `json:"spec,omitempty"`
 
 	// Status reflects the observed state of the threat signature.
-	Status PanoptiumThreatSignatureStatus `json:"status,omitempty"`
+	Status ThreatSignatureStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// PanoptiumThreatSignatureList contains a list of PanoptiumThreatSignature resources.
-type PanoptiumThreatSignatureList struct {
+// ThreatSignatureList contains a list of ThreatSignature resources.
+type ThreatSignatureList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PanoptiumThreatSignature `json:"items"`
+	Items           []ThreatSignature `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&PanoptiumThreatSignature{}, &PanoptiumThreatSignatureList{})
+	SchemeBuilder.Register(&ThreatSignature{}, &ThreatSignatureList{})
 }

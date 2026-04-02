@@ -20,11 +20,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ClusterPanoptiumPolicySpec defines the desired state of a ClusterPanoptiumPolicy.
-// It uses the same fields as PanoptiumPolicySpec and serves as cluster-wide default
+// AgentClusterPolicySpec defines the desired state of a AgentClusterPolicy.
+// It uses the same fields as AgentPolicySpec and serves as cluster-wide default
 // policies that apply to all namespaces unless overridden by namespace-scoped
-// PanoptiumPolicy with higher priority.
-type ClusterPanoptiumPolicySpec struct {
+// AgentPolicy with higher priority.
+//
+// NOTE: The fields in AgentClusterPolicySpec and AgentClusterPolicyStatus
+// intentionally duplicate those in AgentPolicySpec and AgentPolicyStatus
+// rather than embedding them. This is required for Kubebuilder marker compatibility:
+// Kubebuilder code generators (controller-gen) process markers on the struct where
+// they are declared, and embedded structs from a different type do not carry their
+// markers through to the generated CRD schema. Keeping separate struct definitions
+// ensures each CRD gets correct OpenAPI validation, defaulting, and print columns.
+type AgentClusterPolicySpec struct {
 	// TargetSelector selects the pods this policy applies to across all namespaces.
 	// +kubebuilder:validation:Required
 	TargetSelector metav1.LabelSelector `json:"targetSelector"`
@@ -47,8 +55,8 @@ type ClusterPanoptiumPolicySpec struct {
 	Rules []PolicyRule `json:"rules"`
 }
 
-// ClusterPanoptiumPolicyStatus defines the observed state of a ClusterPanoptiumPolicy.
-type ClusterPanoptiumPolicyStatus struct {
+// AgentClusterPolicyStatus defines the observed state of a AgentClusterPolicy.
+type AgentClusterPolicyStatus struct {
 	// Conditions represent the latest available observations of the policy's state.
 	// Supported condition types: Ready, Enforcing, Degraded, Error.
 	// +optional
@@ -77,30 +85,30 @@ type ClusterPanoptiumPolicyStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Ready status"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// ClusterPanoptiumPolicy is the Schema for the clusterpanoptiumpolicies API.
+// AgentClusterPolicy is the Schema for the agentclusterpolicies API.
 // It defines cluster-scoped security policies with trigger-predicate-action rules
 // that apply as defaults across all namespaces unless overridden by namespace-scoped
-// PanoptiumPolicy resources with higher priority.
-type ClusterPanoptiumPolicy struct {
+// AgentPolicy resources with higher priority.
+type AgentClusterPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired policy configuration.
-	Spec ClusterPanoptiumPolicySpec `json:"spec,omitempty"`
+	Spec AgentClusterPolicySpec `json:"spec,omitempty"`
 
 	// Status reflects the observed state of the policy.
-	Status ClusterPanoptiumPolicyStatus `json:"status,omitempty"`
+	Status AgentClusterPolicyStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// ClusterPanoptiumPolicyList contains a list of ClusterPanoptiumPolicy resources.
-type ClusterPanoptiumPolicyList struct {
+// AgentClusterPolicyList contains a list of AgentClusterPolicy resources.
+type AgentClusterPolicyList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ClusterPanoptiumPolicy `json:"items"`
+	Items           []AgentClusterPolicy `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&ClusterPanoptiumPolicy{}, &ClusterPanoptiumPolicyList{})
+	SchemeBuilder.Register(&AgentClusterPolicy{}, &AgentClusterPolicyList{})
 }

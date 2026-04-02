@@ -128,7 +128,7 @@ type ThreatSignatureMatch struct {
 	Severities []string `json:"severities,omitempty"`
 }
 
-// PolicyRule defines a single trigger-predicate-action rule within a PanoptiumPolicy.
+// PolicyRule defines a single trigger-predicate-action rule within an AgentPolicy.
 type PolicyRule struct {
 	// Name is a human-readable identifier for this rule.
 	// +kubebuilder:validation:Required
@@ -159,8 +159,8 @@ type PolicyRule struct {
 	Severity Severity `json:"severity"`
 }
 
-// PanoptiumPolicySpec defines the desired state of a PanoptiumPolicy.
-type PanoptiumPolicySpec struct {
+// AgentPolicySpec defines the desired state of a AgentPolicy.
+type AgentPolicySpec struct {
 	// TargetSelector selects the pods this policy applies to.
 	// +kubebuilder:validation:Required
 	TargetSelector metav1.LabelSelector `json:"targetSelector"`
@@ -183,8 +183,8 @@ type PanoptiumPolicySpec struct {
 	Rules []PolicyRule `json:"rules"`
 }
 
-// PanoptiumPolicyStatus defines the observed state of a PanoptiumPolicy.
-type PanoptiumPolicyStatus struct {
+// AgentPolicyStatus defines the observed state of a AgentPolicy.
+type AgentPolicyStatus struct {
 	// Conditions represent the latest available observations of the policy's state.
 	// Supported condition types: Ready, Enforcing, Degraded, Error.
 	// +optional
@@ -212,29 +212,29 @@ type PanoptiumPolicyStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Ready status"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// PanoptiumPolicy is the Schema for the panoptiumpolicies API.
+// AgentPolicy is the Schema for the agentpolicies API.
 // It defines namespace-scoped security policies with trigger-predicate-action rules
 // for monitoring and controlling AI agent behavior within Kubernetes.
-type PanoptiumPolicy struct {
+type AgentPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired policy configuration.
-	Spec PanoptiumPolicySpec `json:"spec,omitempty"`
+	Spec AgentPolicySpec `json:"spec,omitempty"`
 
 	// Status reflects the observed state of the policy.
-	Status PanoptiumPolicyStatus `json:"status,omitempty"`
+	Status AgentPolicyStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// PanoptiumPolicyList contains a list of PanoptiumPolicy resources.
-type PanoptiumPolicyList struct {
+// AgentPolicyList contains a list of AgentPolicy resources.
+type AgentPolicyList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PanoptiumPolicy `json:"items"`
+	Items           []AgentPolicy `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&PanoptiumPolicy{}, &PanoptiumPolicyList{})
+	SchemeBuilder.Register(&AgentPolicy{}, &AgentPolicyList{})
 }

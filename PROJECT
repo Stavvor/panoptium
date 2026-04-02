@@ -13,7 +13,7 @@ resources:
     namespaced: true
   domain: panoptium.io
   group: panoptium.io
-  kind: PanoptiumPolicy
+  kind: AgentPolicy
   path: github.com/panoptium/panoptium/api/v1alpha1
   version: v1alpha1
 - api:
@@ -21,7 +21,7 @@ resources:
     namespaced: false
   domain: panoptium.io
   group: panoptium.io
-  kind: ClusterPanoptiumPolicy
+  kind: AgentClusterPolicy
   path: github.com/panoptium/panoptium/api/v1alpha1
   version: v1alpha1
 - api:
@@ -29,7 +29,7 @@ resources:
     namespaced: true
   domain: panoptium.io
   group: panoptium.io
-  kind: PanoptiumAgentProfile
+  kind: AgentProfile
   path: github.com/panoptium/panoptium/api/v1alpha1
   version: v1alpha1
 - api:
@@ -37,7 +37,7 @@ resources:
     namespaced: true
   domain: panoptium.io
   group: panoptium.io
-  kind: PanoptiumThreatSignature
+  kind: ThreatSignature
   path: github.com/panoptium/panoptium/api/v1alpha1
   version: v1alpha1
 - api:
@@ -45,7 +45,7 @@ resources:
     namespaced: true
   domain: panoptium.io
   group: panoptium.io
-  kind: PanoptiumQuarantine
+  kind: AgentQuarantine
   path: github.com/panoptium/panoptium/api/v1alpha1
   version: v1alpha1
 version: "3"

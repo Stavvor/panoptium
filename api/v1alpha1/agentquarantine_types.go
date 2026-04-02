@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	// QuarantineCleanupFinalizer is the finalizer added to PanoptiumQuarantine resources
+	// QuarantineCleanupFinalizer is the finalizer added to AgentQuarantine resources
 	// to ensure NetworkPolicies and BPF-LSM rules are cleaned up before deletion.
 	QuarantineCleanupFinalizer = "panoptium.io/quarantine-cleanup"
 )
@@ -103,8 +103,8 @@ type EventReference struct {
 	Summary string `json:"summary,omitempty"`
 }
 
-// PanoptiumQuarantineSpec defines the desired state of a PanoptiumQuarantine.
-type PanoptiumQuarantineSpec struct {
+// AgentQuarantineSpec defines the desired state of a AgentQuarantine.
+type AgentQuarantineSpec struct {
 	// TargetPod is the name of the pod to quarantine.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
@@ -124,11 +124,11 @@ type PanoptiumQuarantineSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Reason string `json:"reason"`
 
-	// TriggeringPolicy is the name of the PanoptiumPolicy that triggered this quarantine.
+	// TriggeringPolicy is the name of the AgentPolicy that triggered this quarantine.
 	// +optional
 	TriggeringPolicy string `json:"triggeringPolicy,omitempty"`
 
-	// TriggeringSignature is the name of the PanoptiumThreatSignature that matched.
+	// TriggeringSignature is the name of the ThreatSignature that matched.
 	// +optional
 	TriggeringSignature string `json:"triggeringSignature,omitempty"`
 
@@ -141,8 +141,8 @@ type PanoptiumQuarantineSpec struct {
 	ForensicSnapshot ForensicSnapshotSpec `json:"forensicSnapshot,omitempty"`
 }
 
-// PanoptiumQuarantineStatus defines the observed state of a PanoptiumQuarantine.
-type PanoptiumQuarantineStatus struct {
+// AgentQuarantineStatus defines the observed state of a AgentQuarantine.
+type AgentQuarantineStatus struct {
 	// Conditions represent the latest available observations of the quarantine's state.
 	// Supported condition types: Ready, Contained, Released, Error.
 	// +optional
@@ -181,30 +181,30 @@ type PanoptiumQuarantineStatus struct {
 // +kubebuilder:printcolumn:name="Contained",type=string,JSONPath=`.status.conditions[?(@.type=="Contained")].status`,description="Contained status"
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// PanoptiumQuarantine is the Schema for the panoptiumquarantines API.
+// AgentQuarantine is the Schema for the agentquarantines API.
 // It represents a containment action applied to a pod suspected of malicious
 // or anomalous behavior. The quarantine includes graduated containment levels,
 // resolution policies, and forensic snapshot configuration.
-type PanoptiumQuarantine struct {
+type AgentQuarantine struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// Spec defines the desired quarantine configuration.
-	Spec PanoptiumQuarantineSpec `json:"spec,omitempty"`
+	Spec AgentQuarantineSpec `json:"spec,omitempty"`
 
 	// Status reflects the observed state of the quarantine.
-	Status PanoptiumQuarantineStatus `json:"status,omitempty"`
+	Status AgentQuarantineStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// PanoptiumQuarantineList contains a list of PanoptiumQuarantine resources.
-type PanoptiumQuarantineList struct {
+// AgentQuarantineList contains a list of AgentQuarantine resources.
+type AgentQuarantineList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PanoptiumQuarantine `json:"items"`
+	Items           []AgentQuarantine `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&PanoptiumQuarantine{}, &PanoptiumQuarantineList{})
+	SchemeBuilder.Register(&AgentQuarantine{}, &AgentQuarantineList{})
 }
