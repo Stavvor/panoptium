@@ -117,8 +117,8 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 
 		It("should have the ExtProc gRPC server listening", func() {
 			By("verifying the ExtProc server is accepting gRPC connections")
-			logs := getOperatorLogs("ExtProc server starting")
-			Expect(logs).NotTo(BeEmpty(), "Operator logs should show ExtProc server starting")
+			logs := getOperatorLogs("extproc-lifecycle")
+			Expect(logs).NotTo(BeEmpty(), "Operator logs should show ExtProc lifecycle activity")
 		})
 	})
 
@@ -129,19 +129,41 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 
 			By("sending a streaming /v1/chat/completions request through AgentGateway")
 			podName := fmt.Sprintf("openai-test-%d", time.Now().UnixNano()%100000)
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "pod", podName,
+					"--namespace", namespace, "--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			})
+
 			cmd := exec.Command("kubectl", "run", podName,
 				"--restart=Never",
-				"--rm", "--attach",
 				"--namespace", namespace,
+				"--labels=panoptium.io/monitored=true",
 				"--image=curlimages/curl:7.78.0",
-				"--", "-s",
+				"--", "-s", "--max-time", "30",
 				"-X", "POST",
 				fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
 				"-H", "Content-Type: application/json",
-				"-H", "x-panoptium-agent-id: e2e-openai-agent",
 				"-d", `{"model":"gpt-4","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "kubectl run should succeed")
 
-			output, err := utils.Run(cmd)
+			By("waiting for curl pod to complete")
+			waitCmd := exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", podName),
+				"--for=jsonpath={.status.phase}=Succeeded",
+				"--namespace", namespace, "--timeout=60s")
+			_, err = utils.Run(waitCmd)
+			if err != nil {
+				// Check if pod failed instead
+				phaseCmd := exec.Command("kubectl", "get", "pod", podName,
+					"--namespace", namespace, "-o", "jsonpath={.status.phase}")
+				phase, _ := utils.Run(phaseCmd)
+				Expect(phase).NotTo(Equal("Failed"), "curl pod should not fail")
+			}
+
+			By("reading curl output from pod logs")
+			logsCmd := exec.Command("kubectl", "logs", podName, "--namespace", namespace)
+			output, err := utils.Run(logsCmd)
 			Expect(err).NotTo(HaveOccurred(), "OpenAI request through AgentGateway should succeed")
 
 			By("verifying response contains expected SSE token data")
@@ -159,19 +181,40 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 
 			By("sending a second streaming /v1/chat/completions request with a different agent ID")
 			podName := fmt.Sprintf("second-test-%d", time.Now().UnixNano()%100000)
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "pod", podName,
+					"--namespace", namespace, "--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			})
+
 			cmd := exec.Command("kubectl", "run", podName,
 				"--restart=Never",
-				"--rm", "--attach",
 				"--namespace", namespace,
+				"--labels=panoptium.io/monitored=true",
 				"--image=curlimages/curl:7.78.0",
-				"--", "-s",
+				"--", "-s", "--max-time", "30",
 				"-X", "POST",
 				fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
 				"-H", "Content-Type: application/json",
-				"-H", "x-panoptium-agent-id: e2e-second-agent",
 				"-d", `{"model":"gpt-4","messages":[{"role":"user","content":"hi again"}],"stream":true}`)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "kubectl run should succeed")
 
-			output, err := utils.Run(cmd)
+			By("waiting for curl pod to complete")
+			waitCmd := exec.Command("kubectl", "wait", fmt.Sprintf("pod/%s", podName),
+				"--for=jsonpath={.status.phase}=Succeeded",
+				"--namespace", namespace, "--timeout=60s")
+			_, err = utils.Run(waitCmd)
+			if err != nil {
+				phaseCmd := exec.Command("kubectl", "get", "pod", podName,
+					"--namespace", namespace, "-o", "jsonpath={.status.phase}")
+				phase, _ := utils.Run(phaseCmd)
+				Expect(phase).NotTo(Equal("Failed"), "curl pod should not fail")
+			}
+
+			By("reading curl output from pod logs")
+			logsCmd := exec.Command("kubectl", "logs", podName, "--namespace", namespace)
+			output, err := utils.Run(logsCmd)
 			Expect(err).NotTo(HaveOccurred(), "Second request through AgentGateway should succeed")
 
 			By("verifying response contains expected SSE data")
@@ -231,7 +274,7 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 
 		It("should show ExtProc processing evidence in operator logs", func() {
 			By("checking operator logs for ExtProc request processing")
-			logs := getOperatorLogs("ExtProc")
+			logs := getOperatorLogs("extproc-lifecycle")
 			Expect(logs).NotTo(BeEmpty(),
 				"Operator logs should contain ExtProc-related entries")
 		})
@@ -259,6 +302,44 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 		})
 	})
 
+	Context("Native Identity Resolution via Transformation Policy", func() {
+		It("should resolve enrolled pod identity via X-Forwarded-For (pod method, success result)", func() {
+			gwIP := gatewayServiceIP()
+			Expect(gwIP).NotTo(BeEmpty(), "Gateway service IP should be available")
+
+			By("sending a request from an enrolled persistent curl pod")
+			podName := createPersistentCurlPod(namespace)
+			DeferCleanup(func() {
+				deletePersistentCurlPod(podName, namespace)
+			})
+
+			statusCode, _, err := execToolCallRequest(podName, gwIP, "", "test-identity-tool", nil)
+			Expect(err).NotTo(HaveOccurred(), "request via persistent pod should succeed")
+			Expect(statusCode).To(Or(Equal(200), Equal(0)),
+				"enrolled pod request should not be rejected")
+
+			By("verifying identity resolution metric shows pod method with success result")
+			value, met := waitForMetric(
+				"panoptium_agent_identity_resolution_total",
+				map[string]string{"method": "pod", "result": "success"},
+				1,
+				2*time.Minute,
+			)
+			Expect(met).To(BeTrue(),
+				fmt.Sprintf("Expected panoptium_agent_identity_resolution_total{method=pod,result=success} >= 1, got %v", value))
+		})
+
+		It("should have the transformation policy resource deployed", func() {
+			By("verifying the AgentgatewayPolicy for header injection exists")
+			cmd := exec.Command("kubectl", "get", "agentgatewaypolicy",
+				"panoptium-identity-headers",
+				"-n", namespace)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(),
+				"AgentgatewayPolicy 'panoptium-identity-headers' should exist in namespace")
+		})
+	})
+
 	Context("Concurrent Requests via AgentGateway", func() {
 		It("should handle concurrent requests from multiple agents", func() {
 			gwIP := gatewayServiceIP()
@@ -273,13 +354,13 @@ var _ = Describe("ExtProc E2E", Label("e2e-extproc"), Ordered, func() {
 					"--restart=Never",
 					"--rm", "--attach",
 					"--namespace", namespace,
+					"--labels=panoptium.io/monitored=true",
 					"--image=curlimages/curl:7.78.0",
 					"--", "-s",
 					"-w", "\n%{http_code}",
 					"-X", "POST",
 					fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
 					"-H", "Content-Type: application/json",
-					"-H", fmt.Sprintf("x-panoptium-agent-id: %s", agentID),
 					"-d", fmt.Sprintf(`{"model":"gpt-4","messages":[{"role":"user","content":"test %s"}],"stream":true}`, agentID))
 
 				output, err := utils.Run(cmd)
