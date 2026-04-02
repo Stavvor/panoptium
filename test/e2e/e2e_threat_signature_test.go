@@ -448,6 +448,409 @@ var _ = Describe("Default Helm ThreatSignature E2E", Label("e2e-threat-sig"), Or
 })
 
 // ---------------------------------------------------------------------------
+// CRD-Driven Threat Detection Hot-Reload E2E Tests
+// ---------------------------------------------------------------------------
+
+var _ = Describe("ThreatSignature Hot-Reload E2E", Label("e2e-threat-sig"), Ordered, func() {
+
+	BeforeAll(func() {
+		By("verifying panoptium operator is running")
+		verifyControllerUp := func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "pods",
+				"-l", "control-plane=controller-manager",
+				"-n", namespace,
+				"-o", "jsonpath={.items[0].status.phase}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("Running"))
+		}
+		Eventually(verifyControllerUp, 2*time.Minute, 5*time.Second).Should(Succeed())
+	})
+
+	AfterEach(func() {
+		specReport := CurrentSpecReport()
+		if specReport.Failed() {
+			By("Fetching operator logs on failure")
+			cmd := exec.Command("kubectl", "logs",
+				"-l", "control-plane=controller-manager",
+				"-n", namespace, "--tail=100")
+			controllerLogs, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n%s\n", controllerLogs)
+			}
+		}
+	})
+
+	// -------------------------------------------------------------------
+	// TS-4: CRD-Driven Threat Detection Hot-Reload
+	// -------------------------------------------------------------------
+	Context("TS-4: Threat Signature Hot-Reload via Reconciler", func() {
+
+		It("should reconcile a new ThreatSignature and emit Kubernetes event on compilation", func() {
+			sigName := uniqueName("ts4-hotreload")
+			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: %s
+spec:
+  protocols:
+    - mcp
+  category: prompt_injection
+  severity: HIGH
+  description: "E2E hot-reload test: detect hidden instructions"
+  detection:
+    patterns:
+      - regex: '(?i)ignore\s+all\s+safety\s+rules'
+        weight: 0.95
+        target: tool_description
+`, sigName)
+
+			By("applying a new PanoptiumThreatSignature")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(yaml)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "panoptiumthreatsignature", sigName,
+					"--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			})
+
+			By("waiting for Ready=True status (confirms reconciler picked it up)")
+			waitForThreatSignatureReady(sigName, 2*time.Minute)
+
+			By("verifying the compiledPatterns count in status")
+			verifyPatternCount := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", sigName,
+					"-o", "jsonpath={.status.compiledPatterns}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("1"), "Should have 1 compiled pattern")
+			}
+			Eventually(verifyPatternCount, 30*time.Second, 5*time.Second).Should(Succeed())
+		})
+
+		It("should remove ThreatSignature from cluster on deletion", func() {
+			sigName := uniqueName("ts4-delete")
+			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: %s
+spec:
+  protocols:
+    - mcp
+  category: data_exfiltration
+  severity: MEDIUM
+  description: "E2E hot-reload deletion test"
+  detection:
+    patterns:
+      - regex: '(?i)send\s+to\s+external'
+        weight: 0.8
+        target: message_content
+`, sigName)
+
+			By("applying and waiting for Ready=True")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(yaml)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			waitForThreatSignatureReady(sigName, 2*time.Minute)
+
+			By("deleting the ThreatSignature")
+			cmd = exec.Command("kubectl", "delete", "panoptiumthreatsignature", sigName)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the resource is removed within 5 seconds")
+			verifyRemoved := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", sigName)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred(), "ThreatSignature should be gone after deletion")
+			}
+			Eventually(verifyRemoved, 10*time.Second, 1*time.Second).Should(Succeed())
+		})
+
+		It("should reconcile updated regex and reflect new compiledPatterns count", func() {
+			sigName := uniqueName("ts4-update")
+			originalYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: %s
+spec:
+  protocols:
+    - mcp
+  category: tool_manipulation
+  severity: HIGH
+  description: "E2E hot-reload update test"
+  detection:
+    patterns:
+      - regex: '(?i)shadow\s+tool'
+        weight: 0.85
+        target: tool_description
+`, sigName)
+
+			By("applying original ThreatSignature with 1 pattern")
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(originalYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "panoptiumthreatsignature", sigName,
+					"--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			})
+
+			By("waiting for Ready=True with 1 compiled pattern")
+			waitForThreatSignatureReady(sigName, 2*time.Minute)
+			originalGen := getThreatSignatureObservedGeneration(sigName)
+
+			updatedYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: %s
+spec:
+  protocols:
+    - mcp
+  category: tool_manipulation
+  severity: CRITICAL
+  description: "E2E hot-reload update test - expanded patterns"
+  detection:
+    patterns:
+      - regex: '(?i)shadow\s+tool'
+        weight: 0.85
+        target: tool_description
+      - regex: '(?i)replace\s+(the\s+)?original\s+tool'
+        weight: 0.9
+        target: tool_description
+`, sigName)
+
+			By("updating ThreatSignature with 2 patterns")
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(updatedYAML)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying reconciler picks up update and compiles both patterns")
+			verifyUpdated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "panoptiumthreatsignature", sigName,
+					"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+
+				cmd = exec.Command("kubectl", "get", "panoptiumthreatsignature", sigName,
+					"-o", "jsonpath={.status.compiledPatterns}")
+				count, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(count).To(Equal("2"), "Should have 2 compiled patterns after update")
+
+				newGen := getThreatSignatureObservedGeneration(sigName)
+				g.Expect(newGen).To(BeNumerically(">", originalGen),
+					"observedGeneration should increase after update")
+			}
+			Eventually(verifyUpdated, 2*time.Minute, 5*time.Second).Should(Succeed())
+		})
+	})
+})
+
+// ---------------------------------------------------------------------------
+// PanoptiumPolicy Integration with ThreatSignatures E2E Tests
+// ---------------------------------------------------------------------------
+
+var _ = Describe("ThreatSignature Policy Integration E2E", Label("e2e-threat-sig"), Ordered, func() {
+
+	BeforeAll(func() {
+		By("verifying panoptium operator is running")
+		verifyControllerUp := func(g Gomega) {
+			cmd := exec.Command("kubectl", "get", "pods",
+				"-l", "control-plane=controller-manager",
+				"-n", namespace,
+				"-o", "jsonpath={.items[0].status.phase}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("Running"))
+		}
+		Eventually(verifyControllerUp, 2*time.Minute, 5*time.Second).Should(Succeed())
+	})
+
+	AfterEach(func() {
+		specReport := CurrentSpecReport()
+		if specReport.Failed() {
+			By("Fetching operator logs on failure")
+			cmd := exec.Command("kubectl", "logs",
+				"-l", "control-plane=controller-manager",
+				"-n", namespace, "--tail=100")
+			controllerLogs, err := utils.Run(cmd)
+			if err == nil {
+				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n%s\n", controllerLogs)
+			}
+		}
+	})
+
+	// -------------------------------------------------------------------
+	// TS-5: PanoptiumPolicy with ThreatSignature References
+	// -------------------------------------------------------------------
+	Context("TS-5: Policy-ThreatSignature Integration", func() {
+
+		It("should create a PanoptiumPolicy referencing a threat signature by name and reach Ready=True", func() {
+			sigName := uniqueName("ts5-sig-byname")
+			policyName := uniqueName("ts5-pol-byname")
+
+			By("creating a ThreatSignature for the policy to reference")
+			sigYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumThreatSignature
+metadata:
+  name: %s
+spec:
+  protocols:
+    - mcp
+  category: prompt_injection
+  severity: CRITICAL
+  description: "E2E policy integration test signature"
+  detection:
+    patterns:
+      - regex: '(?i)ignore\s+instructions'
+        weight: 0.9
+        target: tool_description
+`, sigName)
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(sigYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			waitForThreatSignatureReady(sigName, 2*time.Minute)
+
+			DeferCleanup(func() {
+				cmd := exec.Command("kubectl", "delete", "panoptiumthreatsignature", sigName,
+					"--ignore-not-found=true")
+				_, _ = utils.Run(cmd)
+			})
+
+			By("creating a PanoptiumPolicy that references the signature by name")
+			policyYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector:
+    matchLabels:
+      app: e2e-ts5-target
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: block-on-threat-sig
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: mcp.tool.call
+      threatSignatures:
+        names:
+          - %s
+      action:
+        type: deny
+      severity: CRITICAL
+`, policyName, namespace, sigName)
+
+			cmd = exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(policyYAML)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create PanoptiumPolicy with threatSignatures.names")
+
+			DeferCleanup(func() {
+				deletePanoptiumPolicy(policyName, namespace)
+			})
+
+			By("waiting for the policy to reach Ready=True")
+			waitForPolicyReady(policyName, namespace, 2*time.Minute)
+		})
+
+		It("should create a PanoptiumPolicy matching by category selector and reach Ready=True", func() {
+			policyName := uniqueName("ts5-pol-bycat")
+
+			By("creating a PanoptiumPolicy with threatSignatures.categories selector")
+			policyYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector:
+    matchLabels:
+      app: e2e-ts5-cat
+  enforcementMode: enforcing
+  priority: 90
+  rules:
+    - name: block-prompt-injection
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: mcp.tool.call
+      threatSignatures:
+        categories:
+          - prompt_injection
+      action:
+        type: deny
+      severity: HIGH
+`, policyName, namespace)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(policyYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create PanoptiumPolicy with threatSignatures.categories")
+
+			DeferCleanup(func() {
+				deletePanoptiumPolicy(policyName, namespace)
+			})
+
+			By("waiting for the policy to reach Ready=True")
+			waitForPolicyReady(policyName, namespace, 2*time.Minute)
+		})
+
+		It("should create a PanoptiumPolicy matching by severity selector and reach Ready=True", func() {
+			policyName := uniqueName("ts5-pol-bysev")
+
+			By("creating a PanoptiumPolicy with threatSignatures.severities selector")
+			policyYAML := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: PanoptiumPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector:
+    matchLabels:
+      app: e2e-ts5-sev
+  enforcementMode: audit
+  priority: 80
+  rules:
+    - name: alert-critical-threats
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: mcp.tool.call
+      threatSignatures:
+        severities:
+          - CRITICAL
+          - HIGH
+      action:
+        type: alert
+      severity: HIGH
+`, policyName, namespace)
+
+			cmd := exec.Command("kubectl", "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(policyYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create PanoptiumPolicy with threatSignatures.severities")
+
+			DeferCleanup(func() {
+				deletePanoptiumPolicy(policyName, namespace)
+			})
+
+			By("waiting for the policy to reach Ready=True")
+			waitForPolicyReady(policyName, namespace, 2*time.Minute)
+		})
+	})
+})
+
+// ---------------------------------------------------------------------------
 // ThreatSignature Helper Functions
 // ---------------------------------------------------------------------------
 
