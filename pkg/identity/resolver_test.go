@@ -170,11 +170,54 @@ func TestResolve_XPanoptiumHeadersNotUsed(t *testing.T) {
 	}
 }
 
-// TestPodCacheLabelSelectorFiltering verifies that the PodCache only watches
-// pods with panoptium.io/monitored=true label.
-func TestPodCacheLabelSelectorFiltering(t *testing.T) {
-	if MonitoredLabelSelector != "panoptium.io/monitored=true" {
-		t.Errorf("MonitoredLabelSelector = %q, want %q",
-			MonitoredLabelSelector, "panoptium.io/monitored=true")
+// TestResolveFromIP_IPWithPort verifies that an IP:port source address
+// (as sent by AgentGateway's source.address) is correctly stripped to the
+// bare IP before PodCache lookup.
+func TestResolveFromIP_IPWithPort(t *testing.T) {
+	cache := NewPodCache()
+	cache.Set("10.0.5.50", PodInfo{
+		Name:      "port-pod",
+		Namespace: "test-ns",
+		UID:       "uid-port",
+		Labels:    map[string]string{"app": "gateway"},
+	})
+
+	resolver := NewResolver(cache)
+	identity := resolver.ResolveFromIP("10.0.5.50:12345")
+
+	if identity.PodName != "port-pod" {
+		t.Errorf("PodName = %q, want %q", identity.PodName, "port-pod")
+	}
+	if identity.Confidence != eventbus.ConfidenceHigh {
+		t.Errorf("Confidence = %q, want %q", identity.Confidence, eventbus.ConfidenceHigh)
+	}
+	if identity.SourceIP != "10.0.5.50" {
+		t.Errorf("SourceIP = %q, want %q (port should be stripped)", identity.SourceIP, "10.0.5.50")
 	}
 }
+
+// TestResolveFromIP_BareIP verifies that a bare IP (no port) still resolves
+// correctly — no regression from the port-stripping logic.
+func TestResolveFromIP_BareIP(t *testing.T) {
+	cache := NewPodCache()
+	cache.Set("10.0.5.50", PodInfo{
+		Name:      "bare-pod",
+		Namespace: "test-ns",
+		UID:       "uid-bare",
+		Labels:    map[string]string{"app": "worker"},
+	})
+
+	resolver := NewResolver(cache)
+	identity := resolver.ResolveFromIP("10.0.5.50")
+
+	if identity.PodName != "bare-pod" {
+		t.Errorf("PodName = %q, want %q", identity.PodName, "bare-pod")
+	}
+	if identity.Confidence != eventbus.ConfidenceHigh {
+		t.Errorf("Confidence = %q, want %q", identity.Confidence, eventbus.ConfidenceHigh)
+	}
+	if identity.SourceIP != "10.0.5.50" {
+		t.Errorf("SourceIP = %q, want %q", identity.SourceIP, "10.0.5.50")
+	}
+}
+

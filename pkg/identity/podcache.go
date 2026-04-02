@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -93,20 +92,13 @@ type PodCacheInformer struct {
 	synced  []cache.InformerSynced
 }
 
-// MonitoredLabelSelector is the label selector used to filter watched pods.
-// Only pods with panoptium.io/monitored=true are cached.
-const MonitoredLabelSelector = "panoptium.io/monitored=true"
-
-// NewPodCacheInformer creates a new PodCacheInformer that watches pods with
-// the panoptium.io/monitored=true label across all namespaces and keeps the
-// PodCache in sync. This filtered informer ensures only enrolled pods are
-// watched and cached, reducing memory usage on large clusters.
+// NewPodCacheInformer creates a new PodCacheInformer that watches all pods
+// across all namespaces and keeps the PodCache in sync. Monitoring scope is
+// determined purely by policy definitions (PanoptiumPolicy / ClusterPanoptiumPolicy),
+// not by pod labels. At ~1-2KB per PodInfo entry, watching all pods is
+// acceptable even on large clusters (10,000 pods = 10-20MB).
 func NewPodCacheInformer(client kubernetes.Interface, podCache *PodCache) *PodCacheInformer {
-	factory := informers.NewFilteredSharedInformerFactory(client, 0, metav1.NamespaceAll,
-		func(opts *metav1.ListOptions) {
-			opts.LabelSelector = MonitoredLabelSelector
-		},
-	)
+	factory := informers.NewSharedInformerFactory(client, 0)
 
 	pci := &PodCacheInformer{
 		client:  client,
