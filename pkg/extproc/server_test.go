@@ -28,6 +28,7 @@ import (
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extprocv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -2757,4 +2758,300 @@ func TestMultiChunkBody_StreamedResponseEndOfStream(t *testing.T) {
 	}
 
 	stream.CloseSend()
+}
+
+// TestProcess_ServerGeneratedRequestID verifies that the request ID is generated
+// server-side per gRPC stream and that client-provided x-request-id headers are
+// ignored. This is a trust inversion fix: clients cannot control correlation IDs.
+func TestProcess_ServerGeneratedRequestID(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe(eventbus.EventTypeLLMRequestStart)
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers WITH a client-supplied x-request-id that should be ignored
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"content-type", "application/json",
+					"x-request-id", "client-spoofed-id-12345",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	// Send request body
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response: %v", err)
+	}
+
+	stream.CloseSend()
+
+	// Verify the emitted event has a server-generated UUID, not the client value
+	select {
+	case evt := <-sub.Events():
+		reqID := evt.RequestID()
+		// Must NOT be the client-supplied value
+		if reqID == "client-spoofed-id-12345" {
+			t.Error("request ID should be server-generated, not the client-supplied x-request-id header value")
+		}
+		// Must be a valid UUID
+		if _, err := uuid.Parse(reqID); err != nil {
+			t.Errorf("request ID %q is not a valid UUID: %v", reqID, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for LLMRequestStart event")
+	}
+}
+
+// TestProcess_UniqueRequestIDPerStream verifies that each gRPC stream gets a
+// unique server-generated request ID. Two sequential streams must produce
+// different UUIDs.
+func TestProcess_UniqueRequestIDPerStream(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	var requestIDs []string
+
+	for i := 0; i < 2; i++ {
+		sub := bus.Subscribe(eventbus.EventTypeLLMRequestStart)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		stream, err := client.Process(ctx)
+		if err != nil {
+			cancel()
+			bus.Unsubscribe(sub)
+			t.Fatalf("stream %d: failed to open: %v", i, err)
+		}
+
+		// Send request headers (no x-request-id)
+		err = stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_RequestHeaders{
+				RequestHeaders: &extprocv3.HttpHeaders{
+					Headers: makeHeaderMap(
+						":path", "/v1/chat/completions",
+						":method", "POST",
+						"host", "api.openai.com",
+						"content-type", "application/json",
+					),
+				},
+			},
+		})
+		if err != nil {
+			cancel()
+			bus.Unsubscribe(sub)
+			t.Fatalf("stream %d: failed to send headers: %v", i, err)
+		}
+
+		_, err = stream.Recv()
+		if err != nil {
+			cancel()
+			bus.Unsubscribe(sub)
+			t.Fatalf("stream %d: failed to recv: %v", i, err)
+		}
+
+		// Send request body
+		err = stream.Send(&extprocv3.ProcessingRequest{
+			Request: &extprocv3.ProcessingRequest_RequestBody{
+				RequestBody: &extprocv3.HttpBody{
+					Body:        makeOpenAIRequestBody("gpt-4", true),
+					EndOfStream: true,
+				},
+			},
+		})
+		if err != nil {
+			cancel()
+			bus.Unsubscribe(sub)
+			t.Fatalf("stream %d: failed to send body: %v", i, err)
+		}
+
+		_, err = stream.Recv()
+		if err != nil {
+			cancel()
+			bus.Unsubscribe(sub)
+			t.Fatalf("stream %d: failed to recv body response: %v", i, err)
+		}
+
+		stream.CloseSend()
+
+		select {
+		case evt := <-sub.Events():
+			reqID := evt.RequestID()
+			if _, err := uuid.Parse(reqID); err != nil {
+				t.Errorf("stream %d: request ID %q is not a valid UUID: %v", i, reqID, err)
+			}
+			requestIDs = append(requestIDs, reqID)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("stream %d: timed out waiting for event", i)
+		}
+
+		bus.Unsubscribe(sub)
+		cancel()
+	}
+
+	if len(requestIDs) == 2 && requestIDs[0] == requestIDs[1] {
+		t.Errorf("two streams produced the same request ID %q — expected unique per stream", requestIDs[0])
+	}
+}
+
+// TestProcess_AllEventsCarryServerGeneratedUUID verifies that all emitted events
+// (start, chunk, complete) carry the same server-generated UUID.
+func TestProcess_AllEventsCarryServerGeneratedUUID(t *testing.T) {
+	bus, _, _, srv := setupTestComponents(t)
+	client, cleanup := startTestServer(t, srv)
+	defer cleanup()
+
+	sub := bus.Subscribe()
+	defer bus.Unsubscribe(sub)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stream, err := client.Process(ctx)
+	if err != nil {
+		t.Fatalf("failed to open stream: %v", err)
+	}
+
+	// Send request headers (no x-request-id header)
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(
+					":path", "/v1/chat/completions",
+					":method", "POST",
+					"host", "api.openai.com",
+					"content-type", "application/json",
+				),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive headers response: %v", err)
+	}
+
+	// Send request body
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_RequestBody{
+			RequestBody: &extprocv3.HttpBody{
+				Body:        makeOpenAIRequestBody("gpt-4", true),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send request body: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive body response: %v", err)
+	}
+
+	// Send response headers
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: &extprocv3.HttpHeaders{
+				Headers: makeHeaderMap(":status", "200", "content-type", "text/event-stream"),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response headers: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response headers resp: %v", err)
+	}
+
+	// Send one response body chunk + end
+	err = stream.Send(&extprocv3.ProcessingRequest{
+		Request: &extprocv3.ProcessingRequest_ResponseBody{
+			ResponseBody: &extprocv3.HttpBody{
+				Body:        makeOpenAISSEChunk("Hello"),
+				EndOfStream: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to send response body: %v", err)
+	}
+	_, err = stream.Recv()
+	if err != nil {
+		t.Fatalf("failed to receive response body resp: %v", err)
+	}
+
+	stream.CloseSend()
+
+	// Drain all events and verify they all have the same server-generated UUID
+	var events []eventbus.Event
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case evt, ok := <-sub.Events():
+			if !ok {
+				goto collectDone
+			}
+			events = append(events, evt)
+		case <-timeout:
+			goto collectDone
+		}
+	}
+collectDone:
+
+	if len(events) == 0 {
+		t.Fatal("expected at least one event, got none")
+	}
+
+	// All events must have a valid UUID request ID
+	firstReqID := events[0].RequestID()
+	if _, err := uuid.Parse(firstReqID); err != nil {
+		t.Errorf("first event request ID %q is not a valid UUID: %v", firstReqID, err)
+	}
+
+	// All events from the same stream must share the same request ID
+	for i, evt := range events[1:] {
+		if evt.RequestID() != firstReqID {
+			t.Errorf("event %d has request ID %q, expected %q (same as first event)",
+				i+1, evt.RequestID(), firstReqID)
+		}
+	}
 }
