@@ -63,6 +63,23 @@ type StreamEvent struct {
 
 	// StopReason is the reason generation stopped (for message_stop/message_delta events).
 	StopReason string
+
+	// ToolUse is set when a content_block_start event contains a tool_use block.
+	// It holds the tool call ID and name.
+	ToolUse *ToolUseBlock
+
+	// ContentBlockStop is true when this is a content_block_stop event,
+	// signaling completion of the current content block (including tool_use).
+	ContentBlockStop bool
+}
+
+// ToolUseBlock represents a tool_use content block from an Anthropic response.
+type ToolUseBlock struct {
+	// ID is the tool use identifier.
+	ID string
+
+	// Name is the tool function name.
+	Name string
 }
 
 // MessagesResponse represents a parsed non-streaming Anthropic response.
@@ -101,6 +118,19 @@ type rawRequest struct {
 type rawMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+// rawContentBlockStart is the internal JSON structure for content_block_start events.
+type rawContentBlockStart struct {
+	Type         string `json:"type"`
+	Index        int    `json:"index"`
+	ContentBlock struct {
+		Type  string `json:"type"`
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Text  string `json:"text"`
+		Input struct{} `json:"input"`
+	} `json:"content_block"`
 }
 
 // rawContentBlockDelta is the internal JSON structure for content_block_delta events.
@@ -175,12 +205,32 @@ func ParseSSEEvent(eventType string, data []byte) (*StreamEvent, error) {
 	}
 
 	switch eventType {
+	case "content_block_start":
+		if len(data) > 0 {
+			var raw rawContentBlockStart
+			if err := json.Unmarshal(data, &raw); err != nil {
+				return nil, err
+			}
+			if raw.ContentBlock.Type == "tool_use" {
+				event.ToolUse = &ToolUseBlock{
+					ID:   raw.ContentBlock.ID,
+					Name: raw.ContentBlock.Name,
+				}
+			}
+		}
+
 	case "content_block_delta":
 		var raw rawContentBlockDelta
 		if err := json.Unmarshal(data, &raw); err != nil {
 			return nil, err
 		}
-		event.Content = raw.Delta.Text
+		// Only extract text content from text_delta, not input_json_delta
+		if raw.Delta.Type == "text_delta" {
+			event.Content = raw.Delta.Text
+		}
+
+	case "content_block_stop":
+		event.ContentBlockStop = true
 
 	case "message_delta":
 		var raw rawMessageDelta

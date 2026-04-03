@@ -204,6 +204,24 @@ func (o *LLMObserver) ProcessResponseStream(_ context.Context, streamCtx *observ
 					TokenIndex: streamCtx.TokenCount - 1,
 				})
 			}
+
+			// Accumulate Anthropic tool_use blocks
+			if event.ToolUse != nil {
+				// content_block_start with tool_use: add new entry
+				streamCtx.ResponseToolCalls = append(streamCtx.ResponseToolCalls, observer.ResponseToolCall{
+					Index: len(streamCtx.ResponseToolCalls),
+					ID:    event.ToolUse.ID,
+					Name:  event.ToolUse.Name,
+				})
+			}
+
+			// content_block_stop: mark the last tool_use as complete
+			if event.ContentBlockStop && len(streamCtx.ResponseToolCalls) > 0 {
+				last := len(streamCtx.ResponseToolCalls) - 1
+				if !streamCtx.ResponseToolCalls[last].Complete {
+					streamCtx.ResponseToolCalls[last].Complete = true
+				}
+			}
 		}
 	}
 
