@@ -78,6 +78,10 @@ action:
     escalationAction: "quarantine"  # ...triggers quarantine
 ```
 
+## Network admission vs. policy enforcement
+
+AgentPolicy enforces **semantic/protocol-level** decisions (tool authorization, rate limiting, threat signatures). **Network admission** (which pods can reach the gateway) is handled by Kubernetes NetworkPolicy at the kernel/CNI level. See [`examples/network-policies/`](../network-policies/) for configuration examples.
+
 ## Examples in this directory
 
 | File | Complexity | What it demonstrates |
