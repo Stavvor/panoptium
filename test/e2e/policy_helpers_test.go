@@ -187,6 +187,60 @@ func buildCurlExecArgs(podName, gwIP, agentID, toolName string, extraHeaders map
 	return args
 }
 
+// buildCurlExecArgsNoTools constructs kubectl exec arguments for sending a
+// request WITHOUT tools through an existing persistent curl pod. Used to test
+// llm_request subcategory policies (whole-request deny).
+func buildCurlExecArgsNoTools(podName, gwIP string, extraHeaders map[string]string) []string {
+	payload := `{"model":"gpt-4","messages":[{"role":"user","content":"hello"}],"stream":false}`
+
+	args := []string{
+		"exec", podName,
+		"-n", namespace,
+		"--", "curl",
+		"-s", "--max-time", "30",
+		"-w", "\n---HTTP_STATUS_CODE:%{http_code}---",
+		"-X", "POST",
+		fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
+		"-H", "Content-Type: application/json",
+	}
+
+	for k, v := range extraHeaders {
+		args = append(args, "-H", fmt.Sprintf("%s: %s", k, v))
+	}
+
+	args = append(args, "-d", payload)
+	return args
+}
+
+// buildCurlExecArgsMultiTool constructs kubectl exec arguments for sending a
+// request with multiple tools through an existing persistent curl pod. Returns
+// the full response body for inspection of tool stripping behavior.
+func buildCurlExecArgsMultiTool(podName, gwIP string, toolNames []string, extraHeaders map[string]string) []string {
+	var toolsJSON []string
+	for _, name := range toolNames {
+		toolsJSON = append(toolsJSON, fmt.Sprintf(`{"type":"function","function":{"name":"%s","parameters":{}}}`, name))
+	}
+	payload := fmt.Sprintf(`{"model":"gpt-4","messages":[{"role":"user","content":"call tool"}],"tools":[%s],"stream":false}`, strings.Join(toolsJSON, ","))
+
+	args := []string{
+		"exec", podName,
+		"-n", namespace,
+		"--", "curl",
+		"-s", "--max-time", "30",
+		"-w", "\n---HTTP_STATUS_CODE:%{http_code}---",
+		"-X", "POST",
+		fmt.Sprintf("http://%s:8080/v1/chat/completions", gwIP),
+		"-H", "Content-Type: application/json",
+	}
+
+	for k, v := range extraHeaders {
+		args = append(args, "-H", fmt.Sprintf("%s: %s", k, v))
+	}
+
+	args = append(args, "-d", payload)
+	return args
+}
+
 // parseExecResponse parses the HTTP status code and body from kubectl exec curl
 // output. The curl -w flag appends a status code marker that this function
 // extracts. This is a pure function for testability.
@@ -221,6 +275,32 @@ func parseExecResponse(output string) (statusCode int, body string, err error) {
 // policy decisions must use trusted body-parsed data only (NFR-3: Security).
 func execToolCallRequest(podName, gwIP, agentID, toolName string, extraHeaders map[string]string) (statusCode int, body string, err error) {
 	args := buildCurlExecArgs(podName, gwIP, agentID, toolName, extraHeaders)
+	cmd := exec.Command("kubectl", args...)
+	output, execErr := utils.Run(cmd)
+	if execErr != nil {
+		return 0, "", fmt.Errorf("kubectl exec failed in pod %s: %w", podName, execErr)
+	}
+
+	return parseExecResponse(output)
+}
+
+// execNoToolRequest sends a POST request WITHOUT tools through AgentGateway.
+// Used to test llm_request subcategory policies that deny the entire request.
+func execNoToolRequest(podName, gwIP string, extraHeaders map[string]string) (statusCode int, body string, err error) {
+	args := buildCurlExecArgsNoTools(podName, gwIP, extraHeaders)
+	cmd := exec.Command("kubectl", args...)
+	output, execErr := utils.Run(cmd)
+	if execErr != nil {
+		return 0, "", fmt.Errorf("kubectl exec failed in pod %s: %w", podName, execErr)
+	}
+
+	return parseExecResponse(output)
+}
+
+// execMultiToolRequest sends a POST request with multiple tools through AgentGateway.
+// Used to test tool stripping behavior where some tools are denied/stripped.
+func execMultiToolRequest(podName, gwIP string, toolNames []string, extraHeaders map[string]string) (statusCode int, body string, err error) {
+	args := buildCurlExecArgsMultiTool(podName, gwIP, toolNames, extraHeaders)
 	cmd := exec.Command("kubectl", args...)
 	output, execErr := utils.Run(cmd)
 	if execErr != nil {

@@ -71,7 +71,7 @@ var _ = Describe("Gateway Enforcement E2E", Label("e2e-enforcement"), Ordered, f
 	})
 
 	// -------------------------------------------------------------------
-	// GE-1: Deny Rule Enforcement
+	// GE-1: Deny Rule Enforcement (whole-request deny via llm_request)
 	// -------------------------------------------------------------------
 	Context("GE-1: Deny Rule Enforcement", func() {
 		var curlPod string
@@ -94,10 +94,10 @@ spec:
   enforcementMode: enforcing
   priority: 100
   rules:
-    - name: deny-dangerous-exec
+    - name: deny-all-requests
       trigger:
         eventCategory: protocol
-        eventSubcategory: tool_call
+        eventSubcategory: llm_request
       predicates:
         - cel: "event.path == '/v1/chat/completions'"
       action:
@@ -115,8 +115,8 @@ spec:
 			By("waiting for policy to be compiled")
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
-			By("sending request that matches deny rule through gateway")
-			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", "dangerous_exec", nil)
+			By("sending request without tools that matches deny rule through gateway")
+			statusCode, body, err := execNoToolRequest(curlPod, gwIP, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("verifying 403 response with structured error")
@@ -260,6 +260,110 @@ spec:
 				"request should not be denied when no deny policies exist")
 			Expect(statusCode).NotTo(Equal(503),
 				"request should not get 503 in normal operation")
+		})
+	})
+
+	// -------------------------------------------------------------------
+	// GE-5: Tool Stripping Enforcement
+	// -------------------------------------------------------------------
+	Context("GE-5: Tool Stripping Enforcement", func() {
+		var curlPod string
+		BeforeAll(func() {
+			curlPod = createPersistentCurlPod(namespace)
+			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
+		})
+
+		It("should strip banned tool from request and allow remaining tools through", func() {
+			policyName := uniqueName("ge5-strip")
+			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector:
+    matchLabels:
+      app: e2e-agent
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: strip-dangerous-exec
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      predicates:
+        - cel: "event.toolName == 'dangerous_exec'"
+      action:
+        type: deny
+        parameters:
+          message: "tool stripped by enforcement policy"
+      severity: HIGH
+`, policyName, namespace)
+
+			By("applying AgentPolicy with tool_call deny rule")
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
+
+			By("waiting for policy to be compiled")
+			waitForPolicyReady(policyName, namespace, 2*time.Minute)
+
+			By("sending request with 3 tools (1 banned) through gateway")
+			statusCode, _, err := execMultiToolRequest(curlPod, gwIP,
+				[]string{"safe_read", "dangerous_exec", "safe_write"}, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying request succeeds (tool stripped, not blocked)")
+			Expect(statusCode).To(Equal(200),
+				"expected 200 OK: banned tool should be stripped, not block the entire request")
+
+			By("verifying tool stripped event in operator logs")
+			Eventually(func() string {
+				return getOperatorLogs("tool stripped")
+			}, 30*time.Second, 2*time.Second).ShouldNot(BeEmpty(),
+				"expected 'tool stripped' log entry from operator")
+		})
+
+		It("should succeed when single tool is stripped (request becomes plain chat)", func() {
+			policyName := uniqueName("ge5-single")
+			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector:
+    matchLabels:
+      app: e2e-agent
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: strip-only-tool
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      predicates:
+        - cel: "event.toolName == 'banned_tool'"
+      action:
+        type: deny
+        parameters:
+          message: "tool stripped"
+      severity: HIGH
+`, policyName, namespace)
+
+			By("applying AgentPolicy that strips the only tool")
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
+
+			By("waiting for policy to be compiled")
+			waitForPolicyReady(policyName, namespace, 2*time.Minute)
+
+			By("sending request with single banned tool through gateway")
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", "banned_tool", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying request succeeds as plain chat (all tools stripped)")
+			Expect(statusCode).To(Equal(200),
+				"expected 200 OK: single tool stripped, request becomes plain chat completion")
 		})
 	})
 })

@@ -1,6 +1,7 @@
 ---
 # Block dangerous tools: bash, shell_exec, run_command, execute.
-# Any request declaring these tools gets HTTP 403.
+# These tools are stripped from the request tools[] array before forwarding to the LLM.
+# If the LLM response contains a tool_call for a banned tool, it is intercepted with HTTP 403.
 apiVersion: panoptium.io/v1alpha1
 kind: AgentClusterPolicy
 metadata:

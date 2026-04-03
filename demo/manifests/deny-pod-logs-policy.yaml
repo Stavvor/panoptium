@@ -1,8 +1,11 @@
 ---
-# Demo policy: block pod log access.
-# Demonstrates Panoptium enforcement by blocking a tool the agent actually has.
-# The agent's request to OpenAI includes tools: [{name: "k8s_get_pod_logs"}],
-# Panoptium intercepts the request and returns HTTP 403 before it reaches OpenAI.
+# Demo policy: strip pod log access tool from agent requests.
+# Demonstrates Panoptium tool stripping enforcement. The agent's request to OpenAI
+# includes tools: [{name: "k8s_get_pod_logs"}]. Panoptium removes that tool from
+# the tools[] array before forwarding to the LLM. The LLM never sees the tool,
+# so it cannot use it. Other tools in the request work normally.
+# If the LLM response still contains a tool_call for the banned tool,
+# Panoptium intercepts mid-stream with HTTP 403 (defense-in-depth).
 apiVersion: panoptium.io/v1alpha1
 kind: AgentClusterPolicy
 metadata:

@@ -250,14 +250,18 @@ scenario_a() {
 }
 
 scenario_b() {
-  banner "Scenario B: Denied Request (Pod Log Access Blocked)"
-  info "Applying deny-pod-logs policy (blocks any request declaring k8s_get_pod_logs)..."
+  banner "Scenario B: Tool Stripping (Pod Log Access Removed)"
+  info "Applying deny-pod-logs policy (strips k8s_get_pod_logs from request tools[])..."
   $K apply -f "${DEMO_DIR}/manifests/deny-pod-logs-policy.yaml"
   sleep 3
 
   info "The agent will try to fetch pod logs using k8s_get_pod_logs."
-  info "Panoptium sees this tool in the OpenAI request body and blocks"
-  info "it with HTTP 403 BEFORE the request reaches OpenAI."
+  info "Panoptium strips k8s_get_pod_logs from the tools[] array in the"
+  info "request body. The LLM never sees that tool, so it cannot use it."
+  info "Other tools (k8s_get_resources, etc.) still work normally."
+  info ""
+  info "If the LLM response somehow contains a tool_call for the banned"
+  info "tool, Panoptium intercepts mid-stream with HTTP 403 (defense-in-depth)."
   info ""
   info "Policy: demo-deny-pod-logs (priority 100, enforcing)"
   info "Trigger: tool_call where toolNames contains 'k8s_get_pod_logs'"
@@ -266,8 +270,9 @@ scenario_b() {
   kagent_invoke "Show me the logs for the panoptium-controller-manager pod in the panoptium-system namespace."
 
   show_panoptium_logs 15
-  info "The deny-pod-logs policy should have returned HTTP 403."
-  info "Check for DENY / enforcement events in the logs above."
+  info "The deny-pod-logs policy should have stripped k8s_get_pod_logs from the request."
+  info "Check for 'tool stripped' / enforcement events in the logs above."
+  info "The LLM responded without the pod logs tool — it may explain it cannot access logs."
 
   info "Removing deny-pod-logs policy so other scenarios work..."
   $K delete agentclusterpolicy demo-deny-pod-logs --ignore-not-found 2>/dev/null || true
@@ -322,7 +327,7 @@ echo "                   (policy enforcement)"
 echo ""
 echo "Scenarios:"
 echo "  A) Happy path  -- agent request observed by audit policy"
-echo "  B) Deny tool   -- pod log access blocked by enforcing policy"
+echo "  B) Tool strip  -- pod log tool stripped from request by policy"
 echo "  C) Rate limit  -- agent throttled after 5 req/min"
 echo "  D) Quarantine  -- escalation after repeated violations"
 echo ""
@@ -336,7 +341,7 @@ while true; do
   echo ""
   echo -e "${BOLD}Select a scenario:${RESET}"
   echo "  a) Happy path"
-  echo "  b) Deny pod log access"
+  echo "  b) Tool stripping (pod log access)"
   echo "  c) Rate limiting"
   echo "  d) Quarantine escalation"
   echo "  q) Quit"
