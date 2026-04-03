@@ -9,6 +9,7 @@ GATEWAY_NS="panoptium-system"
 KAGENT_NS="kagent"
 KAGENT_CTRL_PORT=8083
 KAGENT_AGENT_PORT=8080
+GATEWAY_DIRECT_PORT=8081
 DEMO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 BOLD='\033[1m'
@@ -229,6 +230,7 @@ port_forward_start() {
 
 cleanup() {
   [[ -n "${KAGENT_PF_PID:-}" ]] && kill "$KAGENT_PF_PID" 2>/dev/null || true
+  [[ -n "${GATEWAY_PF_PID:-}" ]] && kill "$GATEWAY_PF_PID" 2>/dev/null || true
   info "Port-forwards stopped."
 }
 trap cleanup EXIT
@@ -279,8 +281,144 @@ scenario_b() {
   pause
 }
 
+ensure_mock_llm_image() {
+  local img="example.com/mock-llm:e2e"
+  info "Building mock-llm Docker image..."
+  docker build -q -t "$img" "$(dirname "$DEMO_DIR")/test/e2e/mock-llm/"
+  info "Loading image into kind cluster..."
+  docker exec panoptium-e2e-control-plane crictl rmi "$img" 2>/dev/null || true
+  kind load docker-image "$img" --name panoptium-e2e
+}
+
+gateway_port_forward_start() {
+  pkill -f "kubectl.*port-forward.*${GATEWAY_DIRECT_PORT}:8080" 2>/dev/null || true
+  sleep 1
+
+  local gw_pod
+  gw_pod=$($K get pod -n "$GATEWAY_NS" \
+    -l gateway.networking.k8s.io/gateway-name=e2e-gateway \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+
+  if [[ -z "$gw_pod" ]]; then
+    err "Cannot find gateway pod."
+    return 1
+  fi
+
+  $K port-forward -n "$GATEWAY_NS" "$gw_pod" "${GATEWAY_DIRECT_PORT}:8080" &>/dev/null &
+  GATEWAY_PF_PID=$!
+  sleep 2
+
+  if kill -0 "$GATEWAY_PF_PID" 2>/dev/null; then
+    info "Gateway port-forward active on localhost:${GATEWAY_DIRECT_PORT}"
+  else
+    err "Could not port-forward to gateway pod."
+    return 1
+  fi
+}
+
+gateway_port_forward_stop() {
+  [[ -n "${GATEWAY_PF_PID:-}" ]] && kill "$GATEWAY_PF_PID" 2>/dev/null || true
+  GATEWAY_PF_PID=""
+}
+
 scenario_c() {
-  banner "Scenario C: Rate Limiting"
+  banner "Scenario C: Response-Path Defense (Tool Hallucination)"
+  info "This scenario demonstrates defense-in-depth against tool hallucination."
+  info ""
+  info "A mock LLM backend deliberately returns a tool_call for"
+  info "k8s_get_pod_logs — even though Panoptium stripped that tool"
+  info "from the request. This simulates a prompt injection or model"
+  info "hallucination attack that bypasses request-path tool removal."
+  info ""
+  info "Two-layer enforcement:"
+  info "  Layer 1 (request):  Panoptium strips k8s_get_pod_logs from tools[]"
+  info "  Layer 2 (response): Panoptium catches the unauthorized tool_call → 403"
+  info ""
+  info "Policy: demo-deny-pod-logs (priority 100, enforcing)"
+  pause
+
+  # ── Setup ──
+  info "Ensuring mock-llm image is available..."
+  ensure_mock_llm_image
+
+  info "Applying deny-pod-logs policy..."
+  $K apply -f "${DEMO_DIR}/manifests/deny-pod-logs-policy.yaml"
+
+  info "Deploying hallucinating mock LLM + switching gateway route..."
+  $K apply -f "${DEMO_DIR}/manifests/mock-llm-hallucination.yaml"
+
+  info "Waiting for mock LLM to be ready..."
+  $K rollout status deployment/mock-llm-hallucination \
+    -n "$GATEWAY_NS" --timeout=60s 2>/dev/null || \
+    warn "Mock LLM not ready — continuing anyway."
+
+  # Give gateway time to pick up the new route
+  sleep 3
+
+  info "Opening direct port-forward to gateway..."
+  gateway_port_forward_start || { err "Skipping scenario."; pause; return; }
+
+  # ── Execute ──
+  echo ""
+  info "Sending request with tools: [k8s_get_pod_logs, k8s_get_resources]"
+  echo ""
+  echo -e "  ${BOLD}POST /v1/chat/completions → gateway:${GATEWAY_DIRECT_PORT}${RESET}"
+  echo -e "  ${BOLD}Tools: k8s_get_pod_logs, k8s_get_resources${RESET}"
+  echo ""
+  echo -e "  ${CYAN}Expected flow:${RESET}"
+  echo -e "    1. Panoptium strips k8s_get_pod_logs from request tools[]"
+  echo -e "    2. Mock LLM returns tool_call for k8s_get_pod_logs anyway"
+  echo -e "    3. Panoptium intercepts response mid-stream → HTTP 403"
+  echo ""
+
+  local http_response http_code http_body
+  http_response=$(curl -s -w "\n%{http_code}" --max-time 30 \
+    "http://localhost:${GATEWAY_DIRECT_PORT}/v1/chat/completions" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer mock-key" \
+    -d '{
+      "model": "gpt-4",
+      "messages": [{"role": "user", "content": "Show me the pod logs for panoptium-controller-manager."}],
+      "stream": true,
+      "tools": [
+        {"type": "function", "function": {"name": "k8s_get_pod_logs", "description": "Get pod logs", "parameters": {"type": "object"}}},
+        {"type": "function", "function": {"name": "k8s_get_resources", "description": "Get K8s resources", "parameters": {"type": "object"}}}
+      ]
+    }' 2>&1)
+
+  http_code=$(echo "$http_response" | tail -1)
+  http_body=$(echo "$http_response" | sed '$d')
+
+  echo -e "${BOLD}Response: HTTP ${http_code}${RESET}"
+  if [[ "$http_code" == "403" ]]; then
+    echo -e "${RED}[BLOCKED]${RESET} Response-path enforcement triggered!"
+    echo "$http_body" | jq . 2>/dev/null || echo "$http_body"
+  else
+    echo "$http_body" | head -20
+  fi
+  echo ""
+
+  show_panoptium_logs 20
+  info "Check the logs for:"
+  info "  - 'tool stripped' events (request-path, Layer 1)"
+  info "  - 'response tool_call' enforcement (response-path, Layer 2)"
+
+  # ── Cleanup ──
+  echo ""
+  info "Cleaning up: restoring OpenAI route, removing mock LLM..."
+  gateway_port_forward_stop
+  $K apply -f "${DEMO_DIR}/manifests/agentgateway-openai-backend.yaml"
+  $K delete deployment mock-llm-hallucination -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
+  $K delete service mock-llm-hallucination -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
+  $K delete agentgatewaybackend mock-llm-hallucination-backend -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
+  $K delete agentclusterpolicy demo-deny-pod-logs --ignore-not-found 2>/dev/null || true
+  info "Cleanup done."
+  pause
+}
+
+scenario_d() {
+  banner "Scenario D: Rate Limiting"
   info "Sending 6 rapid tasks to exceed the 5 req/min rate limit."
   info "The rate-limit policy will throttle the agent after 5 requests."
   pause
@@ -297,8 +435,8 @@ scenario_c() {
   pause
 }
 
-scenario_d() {
-  banner "Scenario D: Quarantine Escalation"
+scenario_e() {
+  banner "Scenario E: Quarantine Escalation"
   info "After repeated denials, Panoptium escalates to quarantine."
   info "This creates an AgentQuarantine resource that isolates the pod."
   echo ""
@@ -312,7 +450,7 @@ scenario_d() {
   pause
 }
 
-# ── Main ─────────────────────────────────────────────────────────────
+# ── Main ───────��────────────────────────���────────────────────────────
 
 banner "Panoptium + Kagent + AgentGateway Demo"
 echo "This demo deploys a real Kagent AI agent whose LLM traffic"
@@ -325,11 +463,15 @@ echo "                        |"
 echo "                   Panoptium ExtProc"
 echo "                   (policy enforcement)"
 echo ""
+echo "  Scenario C uses a mock LLM backend instead of OpenAI"
+echo "  to demonstrate response-path defense-in-depth."
+echo ""
 echo "Scenarios:"
-echo "  A) Happy path  -- agent request observed by audit policy"
-echo "  B) Tool strip  -- pod log tool stripped from request by policy"
-echo "  C) Rate limit  -- agent throttled after 5 req/min"
-echo "  D) Quarantine  -- escalation after repeated violations"
+echo "  A) Happy path       -- agent request observed by audit policy"
+echo "  B) Tool strip       -- pod log tool stripped from request by policy"
+echo "  C) Hallucination    -- response-path defense against tool hallucination"
+echo "  D) Rate limit       -- agent throttled after 5 req/min"
+echo "  E) Quarantine       -- escalation after repeated violations"
 echo ""
 
 check_prereqs
@@ -342,17 +484,19 @@ while true; do
   echo -e "${BOLD}Select a scenario:${RESET}"
   echo "  a) Happy path"
   echo "  b) Tool stripping (pod log access)"
-  echo "  c) Rate limiting"
-  echo "  d) Quarantine escalation"
+  echo "  c) Tool hallucination defense"
+  echo "  d) Rate limiting"
+  echo "  e) Quarantine escalation"
   echo "  q) Quit"
   echo ""
-  read -rp "Choice [a/b/c/d/q]: " choice
+  read -rp "Choice [a/b/c/d/e/q]: " choice
   case "$choice" in
     a|A) scenario_a ;;
     b|B) scenario_b ;;
     c|C) scenario_c ;;
     d|D) scenario_d ;;
+    e|E) scenario_e ;;
     q|Q) info "Exiting demo."; break ;;
-    *)   warn "Invalid choice. Try a, b, c, d, or q." ;;
+    *)   warn "Invalid choice. Try a, b, c, d, e, or q." ;;
   esac
 done
