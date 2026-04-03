@@ -138,6 +138,11 @@ networkPolicy:
 
 # AgentGateway integration
 gateway:
+  extProcPolicy:
+    # -- Deploy an AgentgatewayPolicy that routes traffic through Panoptium ExtProc
+    enabled: true
+    # -- Name of the Gateway resource to target
+    gatewayName: "agentgateway"
   identityPolicy:
     # -- Deploy an AgentgatewayPolicy that injects X-Forwarded-For
     #    with the downstream pod's source IP for native identity resolution.
