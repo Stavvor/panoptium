@@ -1,0 +1,12 @@
+# Restrict gateway ingress to pods with specific labels.
+# Only pods with the label "panoptium.io/gateway-access: allowed" can reach
+# the ExtProc port.
+#
+# Usage: helm install panoptium chart/panoptium -f restrict-to-labeled-pods.yaml
+networkPolicy:
+  enabled: true
+  gatewayIngress:
+    allowAllNamespaces: false
+    podSelector:
+      matchLabels:
+        panoptium.io/gateway-access: "allowed"

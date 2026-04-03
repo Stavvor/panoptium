@@ -1,0 +1,9 @@
+# Default: allow ingress from all in-cluster pods to the gateway ExtProc port.
+# This is the default behavior when networkPolicy.enabled=true.
+#
+# Usage: helm install panoptium chart/panoptium
+# (no overrides needed — this is the default)
+networkPolicy:
+  enabled: true
+  gatewayIngress:
+    allowAllNamespaces: true

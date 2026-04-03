@@ -118,6 +118,24 @@ tolerations: []
 # -- Affinity rules
 affinity: {}
 
+# Network Policy configuration
+# Controls ingress access to the gateway (ExtProc) port. Network admission is
+# enforced at the kernel/CNI level via NetworkPolicy, not in ExtProc.
+networkPolicy:
+  # -- Enable the default NetworkPolicy restricting gateway ingress
+  enabled: true
+  gatewayIngress:
+    # -- Allow ingress from all namespaces (set to false to restrict)
+    allowAllNamespaces: true
+    # -- Restrict ingress to pods matching this namespaceSelector (used when allowAllNamespaces is false)
+    # namespaceSelector:
+    #   matchLabels:
+    #     kubernetes.io/metadata.name: ai-agents
+    # -- Restrict ingress to pods matching this podSelector
+    # podSelector:
+    #   matchLabels:
+    #     app: agent
+
 # AgentGateway integration
 gateway:
   identityPolicy:

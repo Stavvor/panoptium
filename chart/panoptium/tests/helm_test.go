@@ -201,3 +201,33 @@ func TestHelmTemplate_SecurityContext(t *testing.T) {
 		t.Error("readOnlyRootFilesystem should be true")
 	}
 }
+
+// TestHelmTemplate_NetworkPolicyEnabled verifies the default NetworkPolicy
+// is rendered when networkPolicy.enabled=true (default).
+func TestHelmTemplate_NetworkPolicyEnabled(t *testing.T) {
+	output := helmTemplate(t)
+
+	if !strings.Contains(output, "kind: NetworkPolicy") {
+		t.Error("NetworkPolicy should be rendered by default (networkPolicy.enabled=true)")
+	}
+	if !strings.Contains(output, "gateway-ingress") {
+		t.Error("NetworkPolicy name should contain 'gateway-ingress'")
+	}
+	if !strings.Contains(output, "app.kubernetes.io/component: network-policy") {
+		t.Error("NetworkPolicy should have component label 'network-policy'")
+	}
+	// Default: allow from all namespaces
+	if !strings.Contains(output, "namespaceSelector: {}") {
+		t.Error("default NetworkPolicy should allow ingress from all namespaces")
+	}
+}
+
+// TestHelmTemplate_NetworkPolicyDisabled verifies no NetworkPolicy is rendered
+// when networkPolicy.enabled=false.
+func TestHelmTemplate_NetworkPolicyDisabled(t *testing.T) {
+	output := helmTemplate(t, "--set", "networkPolicy.enabled=false")
+
+	if strings.Contains(output, "kind: NetworkPolicy") {
+		t.Error("NetworkPolicy should not be rendered when networkPolicy.enabled=false")
+	}
+}
