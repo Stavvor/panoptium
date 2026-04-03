@@ -66,10 +66,28 @@ Everything is configured through Kubernetes Custom Resources:
 
 ## Quick start
 
-**Prerequisites:** [AgentGateway](https://github.com/agentgateway/agentgateway) installed with a Gateway resource created. Panoptium attaches to the gateway as an ExtProc filter.
+**Prerequisites:** [AgentGateway](https://github.com/agentgateway/agentgateway) installed with a Gateway resource. Panoptium attaches to the gateway as an ExtProc filter.
+
+```yaml
+# 1. Create a Gateway (AgentGateway must be installed first)
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: agentgateway
+  namespace: panoptium-system
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+  - name: http
+    port: 8080
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: Same
+```
 
 ```bash
-# Install Panoptium (targets a gateway named "agentgateway" by default)
+# 2. Install Panoptium (targets the gateway named "agentgateway" by default)
 helm install panoptium chart/panoptium -n panoptium-system --create-namespace
 
 # If your gateway has a different name:
