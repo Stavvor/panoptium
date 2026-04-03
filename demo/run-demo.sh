@@ -182,9 +182,12 @@ deploy_demo_resources() {
   $K apply -f "${DEMO_DIR}/manifests/kagent-model-config.yaml"
   $K apply -f "${DEMO_DIR}/manifests/kagent-agent.yaml"
 
+  info "Restarting agent pod to pick up latest ModelConfig..."
+  $K rollout restart deployment demo-k8s-agent -n "$KAGENT_NS" 2>/dev/null || true
+
   info "Waiting for agent pod to be ready..."
-  $K wait pod -n "$KAGENT_NS" -l kagent.dev/agent=demo-k8s-agent \
-    --for=condition=Ready --timeout=120s 2>/dev/null || \
+  sleep 5
+  $K rollout status deployment demo-k8s-agent -n "$KAGENT_NS" --timeout=120s 2>/dev/null || \
     warn "Agent pod not ready yet — check: kubectl get pods -n $KAGENT_NS"
 
   echo ""
