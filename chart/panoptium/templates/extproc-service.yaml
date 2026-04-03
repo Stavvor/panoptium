@@ -1,17 +1,20 @@
+{{- if .Values.extproc.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "panoptium.fullname" . }}-controller-manager-metrics-service
+  name: {{ include "panoptium.fullname" . }}-controller-manager-extproc
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "panoptium.labels" . | nindent 4 }}
-    app.kubernetes.io/component: metrics
+    app.kubernetes.io/component: extproc
 spec:
   ports:
-    - port: 8443
-      targetPort: 8443
+    - port: {{ .Values.extproc.port }}
+      targetPort: {{ .Values.extproc.port }}
       protocol: TCP
-      name: https
+      name: grpc
+      appProtocol: kubernetes.io/h2c
   selector:
     {{- include "panoptium.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: controller-manager
+{{- end }}

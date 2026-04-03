@@ -54,7 +54,7 @@ Create the name of the service account to use.
 */}}
 {{- define "panoptium.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "panoptium.fullname" .) .Values.serviceAccount.name }}
+{{- default (printf "%s-controller-manager" (include "panoptium.fullname" .)) .Values.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}

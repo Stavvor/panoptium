@@ -31,7 +31,7 @@ controller:
   # -- Enable leader election for HA
   leaderElect: true
   # -- Metrics bind address (0 to disable)
-  metricsBindAddress: "0"
+  metricsBindAddress: ":8443"
   # -- Health probe bind address
   healthProbeBindAddress: ":8081"
   # -- Enable secure metrics via HTTPS

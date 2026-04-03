@@ -21,6 +21,7 @@ spec:
       labels:
         {{- include "panoptium.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: controller-manager
+        control-plane: controller-manager
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
