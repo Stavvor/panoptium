@@ -25,34 +25,44 @@ Panoptium is built to catch exactly this. It correlates what an agent *declares*
   <img src="assets/architecture.svg" alt="Panoptium architecture" />
 </p>
 
-**Two observation layers, one decision point:**
+```
+AI Agent Pod --> AgentGateway (Envoy) --> LLM Provider (OpenAI/Anthropic)
+                       |
+                 Panoptium ExtProc
+                 (observe, enforce, strip tools)
+```
 
-1. **Network layer** — [AgentGateway](https://github.com/agentgateway/agentgateway) routes all agent-to-LLM traffic through an Envoy ExtProc filter. Panoptium inspects every request and response: tool names, arguments, model parameters, streaming tokens. It knows what the agent *asked* to do.
+All agent-to-LLM traffic flows through [AgentGateway](https://github.com/agentgateway/agentgateway) (Envoy-based). Panoptium runs as an ExtProc filter on that gateway and acts as both the observation and enforcement point.
 
-2. **Kernel layer** — [eBPF](https://github.com/cilium/ebpf) probes attached to agent pods observe syscalls in real time: file access, network connections, process spawning, namespace manipulation. It knows what the agent *actually did*. When an agent is quarantined, eBPF-LSM hooks can restrict its syscalls at the kernel level — no container restart needed.
+**Observation:**
 
-3. **Policy engine** — evaluates both streams against rules you define as Kubernetes CRDs. Supports rate limiting, temporal sequences ("file write followed by outbound connection within 10s"), process ancestry matching, CIDR ranges, regex, glob patterns, and CEL expressions. Decisions in <5ms p99.
+- Parses every request and response for OpenAI and Anthropic protocols — tool names, arguments, model parameters, token counts, latency. Handles SSE streaming.
+- Resolves agent identity by mapping source IP (from `X-Forwarded-For`) to Kubernetes pod metadata via a pod cache that watches the API server.
+- Publishes all observed events to an embedded NATS event bus for telemetry, SIEM integration, or downstream consumers.
 
-**When something goes wrong:**
+**Policy enforcement:**
 
-- **Deny** — block the request with a 403 and a structured error explaining which rule fired.
-- **Throttle** — rate-limit the agent with 429 responses.
-- **Quarantine** — isolate the pod: deny-all NetworkPolicy, restrict syscalls via eBPF-LSM, snapshot filesystem state. The agent stays alive for forensic inspection but can't do further damage.
-- **Kill** — evict the pod, taint the node, reclaim persistent volumes.
+- Security rules are defined as Kubernetes CRDs (`AgentPolicy` / `AgentClusterPolicy`) with CEL predicates, priority ordering, namespace vs. cluster scope, and first-match semantics.
+- Policies can target specific pods by label selector and operate in `enforcing` or `auditing` mode.
 
-Escalation is automatic: three denied requests from the same agent within a time window triggers quarantine. You can also create `AgentQuarantine` resources manually.
+**Enforcement actions:**
+
+- **Deny** — block the request with a structured error explaining which rule fired.
+- **Throttle** — sliding-window rate limiting per agent, per tool. Returns 429 when exceeded.
+- **Tool stripping** — removes banned tools from the outgoing request body so the LLM never sees them. Defense-in-depth: also intercepts `tool_call` responses for tools that should have been denied.
+- **Escalation** — repeated denied requests from the same agent within a time window automatically create an `AgentQuarantine` CRD. Actual containment actions (NetworkPolicy, pod eviction, eBPF-LSM restriction) are not yet implemented.
 
 ## CRDs
 
 Everything is configured through Kubernetes Custom Resources:
 
-| CRD | Scope | Purpose |
-|-----|-------|---------|
-| `AgentPolicy` | Namespaced | Security rules: triggers, predicates, actions. Targets pods by label selector. |
-| `AgentClusterPolicy` | Cluster | Same as above, but applies across all namespaces. |
-| `AgentProfile` | Namespaced | Behavioral baselines for agent classes (what's "normal" for a coding assistant vs. a data analyst). |
-| `ThreatSignature` | Cluster | Detection patterns for known attacks: prompt injection variants, tool poisoning, exfiltration techniques. Ships with defaults. |
-| `AgentQuarantine` | Namespaced | Containment state for a pod: restricted, quarantined, or terminated. Created automatically or manually. |
+| CRD | Scope | Status | Purpose |
+|-----|-------|--------|---------|
+| `AgentPolicy` | Namespaced | **Active** | Security rules: triggers, predicates, actions. Targets pods by label selector. |
+| `AgentClusterPolicy` | Cluster | **Active** | Same as above, but applies across all namespaces. |
+| `ThreatSignature` | Cluster | **Partial** | CRD + controller work. Detection patterns for prompt injection, tool poisoning, exfiltration. Enforcement pipeline not yet wired to policy evaluation. |
+| `AgentProfile` | Namespaced | **Planned** | Behavioral baselines for agent classes. CRD exists, no anomaly detection consumer built. |
+| `AgentQuarantine` | Namespaced | **Partial** | Escalation manager creates these automatically. Containment actions (NetworkPolicy, eviction, eBPF-LSM) are stubbed. |
 
 ## Quick start
 
@@ -73,25 +83,28 @@ metadata:
   name: block-shell-exec
   namespace: default
 spec:
+  targetSelector:
+    matchLabels:
+      app: my-agent
   enforcementMode: enforcing
+  priority: 100
   rules:
     - name: deny-shell
       trigger:
-        layer: protocol
-        category: tool_call
+        eventCategory: protocol
+        eventSubcategory: tool_call
       predicates:
-        - field: toolName
-          operator: "=="
-          value: shell_exec
+        - cel: "event.toolName == 'shell_exec'"
       action:
         type: deny
         parameters:
           message: "shell execution is not allowed"
+      severity: HIGH
 ```
 
-Any pod with `app: my-agent` that tries to call `shell_exec` gets a 403.
+Any pod with `app: my-agent` that tries to call `shell_exec` gets denied.
 
-More examples in [`examples/policies/`](examples/policies/) — from simple deny rules to rate limiting, escalation chains, threat signature enforcement, and cluster-wide baselines.
+More examples in [`examples/policies/`](examples/policies/).
 
 To tear down:
 
@@ -101,23 +114,25 @@ helm uninstall panoptium -n panoptium-system
 
 ## Roadmap
 
-| Area | Status | What |
-|------|--------|------|
-| Policy engine | **Done** | Compiler, evaluator, composition resolver, rate limiting, temporal sequences, CEL predicates |
-| Gateway enforcement | **Done** | ExtProc filter with deny/throttle/allow, decision caching, fail-open/fail-closed modes |
-| CRD operator | **Done** | 5 CRDs, reconcilers, validating webhooks, Helm chart |
-| eBPF observation | **Done** | Syscall monitoring via Tetragon, kernel event publishing to NATS |
-| Threat signatures | **Done** | CRD-based detection patterns, regex + CEL hybrid, default signatures for prompt injection |
-| Escalation & quarantine | **Done** | Automatic deny → quarantine escalation, NetworkPolicy isolation, pod eviction |
-| Identity resolution | **Done** | Pod IP → metadata lookup, agent attribution for policy evaluation |
-| Event bus | **Done** | Embedded NATS with JetStream for durable event streaming |
-| Protocol parsers (MCP, A2A, Gemini) | **Code complete** | Parsers implemented and tested, not yet wired into the operator |
-| Intent-action correlation | Planned | Match LLM-declared intents with observed kernel syscalls, detect divergence |
-| Behavioral anomaly detection | Planned | Three-tier detection: in-kernel rules, statistical analysis, ML-based fleet-wide correlation |
-| Cross-layer detection correlation | Planned | Combine signals from kernel, network, protocol, and LLM layers |
-| Graduated containment | Planned | 5-level response: enhanced monitoring → capability restriction → quarantine → termination |
-| Forensic audit trail | Planned | Hash-chained audit logs with compliance mapping (EU AI Act, NIST AI RMF) |
-| Multi-cluster federation | Planned | Hub-spoke policy sync, cross-cluster threat intelligence sharing |
+| Area | Status |
+|------|--------|
+| Policy engine (CEL predicates, composition, priority) | Done |
+| Gateway enforcement (ExtProc deny/throttle/allow) | Done |
+| Tool enforcement (strip from request + response intercept) | Done |
+| Agent identity resolution (pod IP to metadata) | Done |
+| Rate limiting (sliding window, per-agent/per-tool) | Done |
+| Event bus (embedded NATS) | Done |
+| CRD operator + Helm chart (5 CRDs, webhooks) | Done |
+| LLM observation (OpenAI / Anthropic, SSE streaming) | Done |
+| MCP protocol observation | Code complete, not wired |
+| A2A / Gemini parsers | Code complete, not wired |
+| Threat signature enforcement | Partial -- CRD works, enforcement pipeline not connected |
+| Quarantine containment | Partial -- escalation works, containment actions stubbed |
+| eBPF / Tetragon observation | Standalone -- not integrated with policy enforcement |
+| Agent behavioral profiling | Planned -- CRD only |
+| Intent-action correlation | Planned |
+| Cross-layer detection | Planned |
+| Multi-cluster federation | Planned |
 
 ## Contributing
 
