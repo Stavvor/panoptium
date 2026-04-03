@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -31,10 +32,18 @@ import (
 // tokens are the deterministic tokens returned by the mock LLM.
 var tokens = []string{"Hello", " from", " mock", " LLM"}
 
+// forceToolCall, when non-empty, makes every response return a tool_call for
+// this tool name instead of text tokens. Set via FORCE_TOOL_CALL env var.
+// This simulates an LLM "hallucinating" a tool_call for a tool that was
+// stripped from the request — useful for testing response-path enforcement.
+var forceToolCall = os.Getenv("FORCE_TOOL_CALL")
+
 func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/chat/completions", newOpenAIHandler())
+	mux.Handle("/chat/completions", newOpenAIHandler())
 	mux.Handle("/v1/messages", newAnthropicHandler())
+	mux.Handle("/messages", newAnthropicHandler())
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
@@ -84,6 +93,11 @@ func handleOpenAIStreaming(w http.ResponseWriter, req llmRequest) {
 
 	flusher, _ := w.(http.Flusher)
 
+	if forceToolCall != "" {
+		writeOpenAIToolCallSSE(w, req, flusher)
+		return
+	}
+
 	for i, tok := range tokens {
 		chunk := map[string]interface{}{
 			"id":      fmt.Sprintf("chatcmpl-mock-%d", i),
@@ -115,8 +129,102 @@ func handleOpenAIStreaming(w http.ResponseWriter, req llmRequest) {
 	}
 }
 
+// writeOpenAIToolCallSSE writes SSE chunks that contain a tool_call for forceToolCall.
+func writeOpenAIToolCallSSE(w http.ResponseWriter, req llmRequest, flusher http.Flusher) {
+	// Chunk 1: tool_call delta with function name
+	tcChunk := map[string]interface{}{
+		"id":      "chatcmpl-mock-tc-0",
+		"object":  "chat.completion.chunk",
+		"created": time.Now().Unix(),
+		"model":   req.Model,
+		"choices": []map[string]interface{}{
+			{
+				"index": 0,
+				"delta": map[string]interface{}{
+					"tool_calls": []map[string]interface{}{
+						{
+							"index": 0,
+							"id":    "call_mock_hallucinated",
+							"type":  "function",
+							"function": map[string]interface{}{
+								"name":      forceToolCall,
+								"arguments": "",
+							},
+						},
+					},
+				},
+				"finish_reason": nil,
+			},
+		},
+	}
+	data, _ := json.Marshal(tcChunk)
+	fmt.Fprintf(w, "data: %s\n\n", data)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	// Chunk 2: arguments fragment
+	argChunk := map[string]interface{}{
+		"id":      "chatcmpl-mock-tc-1",
+		"object":  "chat.completion.chunk",
+		"created": time.Now().Unix(),
+		"model":   req.Model,
+		"choices": []map[string]interface{}{
+			{
+				"index": 0,
+				"delta": map[string]interface{}{
+					"tool_calls": []map[string]interface{}{
+						{
+							"index": 0,
+							"function": map[string]interface{}{
+								"arguments": "{}",
+							},
+						},
+					},
+				},
+				"finish_reason": nil,
+			},
+		},
+	}
+	data, _ = json.Marshal(argChunk)
+	fmt.Fprintf(w, "data: %s\n\n", data)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	// Chunk 3: finish_reason = "tool_calls"
+	finishChunk := map[string]interface{}{
+		"id":      "chatcmpl-mock-tc-2",
+		"object":  "chat.completion.chunk",
+		"created": time.Now().Unix(),
+		"model":   req.Model,
+		"choices": []map[string]interface{}{
+			{
+				"index":         0,
+				"delta":         map[string]interface{}{},
+				"finish_reason": "tool_calls",
+			},
+		},
+	}
+	data, _ = json.Marshal(finishChunk)
+	fmt.Fprintf(w, "data: %s\n\n", data)
+	if flusher != nil {
+		flusher.Flush()
+	}
+
+	fmt.Fprint(w, "data: [DONE]\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
 // handleOpenAINonStreaming writes a single JSON response in OpenAI format.
 func handleOpenAINonStreaming(w http.ResponseWriter, req llmRequest) {
+	if forceToolCall != "" {
+		writeOpenAIToolCallJSON(w, req)
+		return
+	}
+
 	content := strings.Join(tokens, "")
 	resp := map[string]interface{}{
 		"id":      "chatcmpl-mock-non-stream",
@@ -137,6 +245,45 @@ func handleOpenAINonStreaming(w http.ResponseWriter, req llmRequest) {
 			"prompt_tokens":     10,
 			"completion_tokens": len(tokens),
 			"total_tokens":      10 + len(tokens),
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}
+
+// writeOpenAIToolCallJSON writes a non-streaming JSON response with a tool_call.
+func writeOpenAIToolCallJSON(w http.ResponseWriter, req llmRequest) {
+	resp := map[string]interface{}{
+		"id":      "chatcmpl-mock-tc-ns",
+		"object":  "chat.completion",
+		"created": time.Now().Unix(),
+		"model":   req.Model,
+		"choices": []map[string]interface{}{
+			{
+				"index": 0,
+				"message": map[string]interface{}{
+					"role":    "assistant",
+					"content": nil,
+					"tool_calls": []map[string]interface{}{
+						{
+							"id":   "call_mock_hallucinated",
+							"type": "function",
+							"function": map[string]interface{}{
+								"name":      forceToolCall,
+								"arguments": "{}",
+							},
+						},
+					},
+				},
+				"finish_reason": "tool_calls",
+			},
+		},
+		"usage": map[string]int{
+			"prompt_tokens":     10,
+			"completion_tokens": 5,
+			"total_tokens":      15,
 		},
 	}
 
