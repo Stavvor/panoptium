@@ -186,6 +186,8 @@ case "${DEPLOY_METHOD}" in
             --set "image.tag=${PANOPTIUM_IMG_TAG}" \
             --set webhook.enabled=true \
             --set webhook.certManager=false \
+            --set gateway.extProcPolicy.gatewayName=e2e-gateway \
+            --set gateway.identityPolicy.gatewayName=e2e-gateway \
             --kube-context "${KUBE_CTX}" \
             --wait \
             --timeout 120s
