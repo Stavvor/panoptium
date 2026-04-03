@@ -232,7 +232,7 @@ spec:
 				"Dangerous tool should be stripped from the request before reaching the LLM")
 
 			By("sending tool_call for safe_read and expecting HTTP 200")
-			statusCode, _, err = execToolCallRequest(curlPod, gwIP, "pe2-agent", "safe_read", nil)
+			statusCode, _, err = execToolCallRequest(curlPod, gwIP, "safe_read", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(statusCode).To(Equal(200), "Safe tool_call should pass through with 200")
 		})
@@ -311,7 +311,7 @@ spec:
 			waitForPolicyReady(allowPolicyName, namespace, 2*time.Minute)
 
 			By("sending tool_call for ambiguous_tool and expecting HTTP 200 (allow wins)")
-			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "pe3-agent", "ambiguous_tool", nil)
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "ambiguous_tool", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(statusCode).To(Equal(200),
 				"Explicit allow should override deny at equal priority")
@@ -390,7 +390,7 @@ spec:
 			waitForPolicyReady(namespacePolicyName, namespace, 2*time.Minute)
 
 			By("sending tool_call for scoped_tool and expecting HTTP 200 (namespace wins)")
-			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "pe4-agent", "scoped_tool", nil)
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "scoped_tool", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(statusCode).To(Equal(200),
 				"Namespace-scoped allow should override cluster deny at equal priority")
@@ -405,6 +405,13 @@ spec:
 		BeforeAll(func() {
 			curlPod = createPersistentCurlPod(namespace)
 			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
+
+			// Warm up: probe the gateway→ExtProc path before sending rate-limited
+			// requests. After a Helm upgrade scale-down (earlier in the Ordered suite),
+			// the gRPC connection may not yet be re-established even though the
+			// deployment is Available. Without this, the first rate-limit requests
+			// may receive 503 instead of 200, causing the burst count to be wrong.
+			waitForExtProcReady(curlPod, gwIP)
 		})
 
 		It("should throttle with HTTP 429 after rate limit exceeded", func() {
@@ -443,14 +450,14 @@ spec:
 
 			By("sending 3 requests within limit — all should get HTTP 200")
 			for i := 1; i <= 3; i++ {
-				statusCode, _, err := execToolCallRequest(curlPod, gwIP, "pe5-agent", "rate_test", nil)
+				statusCode, _, err := execToolCallRequest(curlPod, gwIP, "rate_test", nil)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(statusCode).To(Equal(200),
 					fmt.Sprintf("Request %d/3 should pass (within rate limit)", i))
 			}
 
 			By("sending 4th request — should get HTTP 429")
-			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "pe5-agent", "rate_test", nil)
+			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "rate_test", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(statusCode).To(Equal(429), "4th request should be rate limited with 429")
 			Expect(assertStructuredError(body, "rate_limited", "")).To(Succeed(),
@@ -510,9 +517,8 @@ spec:
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending 3 requests to trigger escalation")
-			agentID := uniqueName("pe6-agent")
 			for i := 1; i <= 3; i++ {
-				statusCode, _, err := execToolCallRequest(curlPod, gwIP, agentID, "escalation_target", nil)
+				statusCode, _, err := execToolCallRequest(curlPod, gwIP, "escalation_target", nil)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(statusCode).To(Equal(403),
 					fmt.Sprintf("Denial %d/3 should return 403", i))
@@ -607,7 +613,7 @@ spec:
 			// tool name "file_write" and a header hinting the path so the
 			// policy engine can match the trigger + predicate.
 			By("sending file_write tool_call (first event in temporal sequence)")
-			_, _, err = execToolCallRequest(curlPod, gwIP, "pe7-agent", "file_write", nil)
+			_, _, err = execToolCallRequest(curlPod, gwIP, "file_write", nil)
 			// The file_write request itself may be allowed (alert action
 			// does not block), or it may not match the ExtProc path if the
 			// gateway does not synthesize a kernel.file_write event from an
@@ -621,7 +627,7 @@ spec:
 			time.Sleep(1 * time.Second)
 
 			By("sending egress_attempt tool_call (follow-up event within temporal window)")
-			_, _, err = execToolCallRequest(curlPod, gwIP, "pe7-agent", "egress_attempt", nil)
+			_, _, err = execToolCallRequest(curlPod, gwIP, "egress_attempt", nil)
 			Expect(err).NotTo(HaveOccurred(),
 				"egress_attempt request should reach the gateway without transport error")
 
@@ -691,7 +697,7 @@ spec:
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending tool_call to trigger deny and NATS event")
-			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "pe8-agent", "nats_test_tool", nil)
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "nats_test_tool", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(statusCode).To(Equal(403), "Request should be denied")
 
@@ -752,7 +758,7 @@ spec:
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending tool_call targeting /etc/shadow")
-			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "pe9-agent", "file_read", nil)
+			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "file_read", nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			// The deny rule has fallback.rewritePath configured, so the FallbackEngine
@@ -826,7 +832,7 @@ spec:
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending request and verifying it is denied (HTTP 403)")
-			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "pe10-agent", "hot_reload_target", nil)
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "hot_reload_target", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(statusCode).To(Equal(403), "Initial request should be denied")
 
@@ -871,7 +877,7 @@ spec:
 
 			By("sending same request and verifying it is now allowed (HTTP 200)")
 			verifyAllowed := func(g Gomega) {
-				statusCode, _, reqErr := execToolCallRequest(curlPod, gwIP, "pe10-agent", "hot_reload_target", nil)
+				statusCode, _, reqErr := execToolCallRequest(curlPod, gwIP, "hot_reload_target", nil)
 				g.Expect(reqErr).NotTo(HaveOccurred())
 				g.Expect(statusCode).To(Equal(200),
 					"After hot-reload, request should be allowed")
@@ -956,7 +962,7 @@ spec:
 					defer wg.Done()
 					agentIdx := idx % numAgents
 					agentID := fmt.Sprintf("pe11-agent-%d", agentIdx)
-					statusCode, _, reqErr := execToolCallRequest(curlPods[agentIdx], gwIP, agentID, "concurrent_deny", nil)
+					statusCode, _, reqErr := execToolCallRequest(curlPods[agentIdx], gwIP, "concurrent_deny", nil)
 					results[idx] = result{
 						agentID:    agentID,
 						requestNum: idx,
@@ -1060,7 +1066,6 @@ spec:
 				podIdx := i / requestsPerPod
 				start := time.Now()
 				_, _, err := execToolCallRequest(benchPods[podIdx], gwIP,
-					fmt.Sprintf("pe12-agent-%d", i%5),
 					fmt.Sprintf("bench_%d", i%10), nil)
 				elapsed := time.Since(start)
 				Expect(err).NotTo(HaveOccurred())
@@ -1142,7 +1147,7 @@ spec:
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
 			By("sending request that triggers CRITICAL deny")
-			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", "critical_tool", nil)
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "critical_tool", nil)
 			Expect(err).NotTo(HaveOccurred())
 			// Tool is stripped (200) or denied (403) depending on whether it's the only tool
 			_ = statusCode
@@ -1204,7 +1209,7 @@ spec:
 			By("sending 3 requests with different tools from same agent")
 			// First 2 should be within burst
 			for i, tool := range []string{"tool_a", "tool_b"} {
-				statusCode, _, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", tool, nil)
+				statusCode, _, err := execToolCallRequest(curlPod, gwIP, tool, nil)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(statusCode).To(Equal(200),
 					fmt.Sprintf("request %d (tool %s): expected 200 (within burst)", i+1, tool))
@@ -1212,7 +1217,7 @@ spec:
 
 			// 3rd request with yet another tool should be rate limited
 			// (shares counter because groupBy=agent)
-			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", "tool_c", nil)
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "tool_c", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(statusCode).To(Equal(429),
 				"3rd request with different tool: expected 429 (agent-based counter shared)")
