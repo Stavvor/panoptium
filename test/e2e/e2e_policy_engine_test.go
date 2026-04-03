@@ -1093,4 +1093,127 @@ spec:
 				"p50 end-to-end latency should be under 200ms")
 		})
 	})
+
+	// PE-8: Severity-Based Escalation (FR-5)
+	Context("PE-8: Severity-Based Escalation", func() {
+		var curlPod string
+		BeforeAll(func() {
+			curlPod = createPersistentCurlPod(namespace)
+			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
+		})
+
+		It("should create AgentQuarantine when CRITICAL severity event exceeds risk threshold", func() {
+			policyName := "pe8-critical-escalation"
+
+			yaml := fmt.Sprintf(`
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector: {}
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: critical-deny
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      predicates:
+        - cel: "event.toolName == 'critical_tool'"
+      action:
+        type: deny
+        parameters:
+          message: "critical tool denied"
+          escalationThreshold: "100"
+          escalationWindow: "300"
+          escalationAction: "quarantine"
+      severity: CRITICAL
+`, policyName, namespace)
+
+			By("applying CRITICAL severity deny policy with escalation")
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
+
+			By("waiting for policy to be compiled")
+			waitForPolicyReady(policyName, namespace, 2*time.Minute)
+
+			By("sending request that triggers CRITICAL deny")
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", "critical_tool", nil)
+			Expect(err).NotTo(HaveOccurred())
+			// Tool is stripped (200) or denied (403) depending on whether it's the only tool
+			_ = statusCode
+
+			By("verifying AgentQuarantine was created (1 CRITICAL = 100 risk pts >= threshold 100)")
+			verifyQuarantine := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "agentquarantine",
+					"-n", namespace,
+					"-o", "jsonpath={.items[*].spec.triggeringPolicy}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(string(output)).To(ContainSubstring(policyName))
+			}
+			Eventually(verifyQuarantine, 30*time.Second, 2*time.Second).Should(Succeed())
+		})
+	})
+
+	// PE-9: Rate Limit GroupBy Agent (FR-6)
+	Context("PE-9: Rate Limit GroupBy Agent", func() {
+		var curlPod string
+		BeforeAll(func() {
+			curlPod = createPersistentCurlPod(namespace)
+			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
+		})
+
+		It("should share rate limit counter across different tools from same agent", func() {
+			policyName := "pe9-ratelimit-agent"
+
+			yaml := fmt.Sprintf(`
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector: {}
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: rate-limit-agent
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      action:
+        type: rateLimit
+        parameters:
+          burstSize: "2"
+          groupBy: "agent"
+      severity: MEDIUM
+`, policyName, namespace)
+
+			By("applying rateLimit policy with groupBy: agent")
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
+
+			By("waiting for policy to be compiled")
+			waitForPolicyReady(policyName, namespace, 2*time.Minute)
+
+			By("sending 3 requests with different tools from same agent")
+			// First 2 should be within burst
+			for i, tool := range []string{"tool_a", "tool_b"} {
+				statusCode, _, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", tool, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(statusCode).To(Equal(200),
+					fmt.Sprintf("request %d (tool %s): expected 200 (within burst)", i+1, tool))
+			}
+
+			// 3rd request with yet another tool should be rate limited
+			// (shares counter because groupBy=agent)
+			statusCode, _, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", "tool_c", nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(statusCode).To(Equal(429),
+				"3rd request with different tool: expected 429 (agent-based counter shared)")
+		})
+	})
 })

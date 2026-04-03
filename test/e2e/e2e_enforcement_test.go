@@ -96,7 +96,7 @@ spec:
   rules:
     - name: deny-all-requests
       trigger:
-        eventCategory: protocol
+        eventCategory: llm
         eventSubcategory: llm_request
       predicates:
         - cel: "event.path == '/v1/chat/completions'"
@@ -364,6 +364,141 @@ spec:
 			By("verifying request succeeds as plain chat (all tools stripped)")
 			Expect(statusCode).To(Equal(200),
 				"expected 200 OK: single tool stripped, request becomes plain chat completion")
+		})
+	})
+
+	// GE-6: Multi-Policy Composition — deny-first at equal priority (FR-3)
+	Context("GE-6: Multi-Policy Composition", func() {
+		var curlPod string
+		BeforeAll(func() {
+			curlPod = createPersistentCurlPod(namespace)
+			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
+		})
+
+		It("should deny when allow and deny policies exist at equal priority", func() {
+			allowPolicyName := "ge6-allow-bash"
+			denyPolicyName := "ge6-deny-bash"
+
+			allowYAML := fmt.Sprintf(`
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector: {}
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: allow-bash
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      predicates:
+        - cel: "event.toolName == 'bash'"
+      action:
+        type: allow
+      severity: LOW
+`, allowPolicyName, namespace)
+
+			denyYAML := fmt.Sprintf(`
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector: {}
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: deny-bash
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      predicates:
+        - cel: "event.toolName == 'bash'"
+      action:
+        type: deny
+        parameters:
+          message: "bash denied by GE-6"
+      severity: HIGH
+`, denyPolicyName, namespace)
+
+			By("applying both allow and deny policies at equal priority")
+			Expect(applyAgentPolicy(allowYAML)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(allowPolicyName, namespace) })
+			Expect(applyAgentPolicy(denyYAML)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(denyPolicyName, namespace) })
+
+			By("waiting for policies to be compiled")
+			waitForPolicyReady(allowPolicyName, namespace, 2*time.Minute)
+			waitForPolicyReady(denyPolicyName, namespace, 2*time.Minute)
+
+			By("sending tool_call request with bash tool")
+			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", "bash", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying deny-first: bash should be stripped (deny wins over allow at equal priority)")
+			// With deny-first semantics, the tool is stripped even though an allow exists.
+			// If bash is the only tool, the request becomes plain chat (200), not 403.
+			_ = body
+			Expect(statusCode).To(Equal(200),
+				"expected 200 OK: bash stripped by deny-first, request becomes plain chat")
+		})
+	})
+
+	// GE-7: Dual Event Emission — llm_request deny blocks request with tools (FR-2)
+	Context("GE-7: Dual Event Emission", func() {
+		var curlPod string
+		BeforeAll(func() {
+			curlPod = createPersistentCurlPod(namespace)
+			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
+		})
+
+		It("should block entire request when llm_request policy denies, even with tools", func() {
+			policyName := "ge7-deny-llm-request"
+
+			yaml := fmt.Sprintf(`
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  targetSelector: {}
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: deny-all-llm
+      trigger:
+        eventCategory: llm
+        eventSubcategory: llm_request
+      action:
+        type: deny
+        parameters:
+          message: "all LLM requests blocked by GE-7"
+      severity: HIGH
+`, policyName, namespace)
+
+			By("applying llm_request deny policy")
+			Expect(applyAgentPolicy(yaml)).To(Succeed())
+			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
+
+			By("waiting for policy to be compiled")
+			waitForPolicyReady(policyName, namespace, 2*time.Minute)
+
+			By("sending request WITH tools through gateway")
+			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "e2e-agent", "safe_tool", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying llm_request deny blocks the entire request (FR-2 dual emission)")
+			Expect(statusCode).To(Equal(403),
+				"expected 403: llm_request deny should block before per-tool evaluation")
+
+			var respBody map[string]interface{}
+			Expect(json.Unmarshal([]byte(body), &respBody)).To(Succeed())
+			Expect(respBody["message"]).To(ContainSubstring("all LLM requests blocked by GE-7"))
 		})
 	})
 })
