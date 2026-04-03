@@ -46,7 +46,9 @@ const (
 // knownPaths maps URL path prefixes to their provider identification.
 var knownPaths = map[string]string{
 	"/v1/chat/completions": providerOpenAI,
+	"/chat/completions":    providerOpenAI,
 	"/v1/messages":         providerAnthropic,
+	"/messages":            providerAnthropic,
 }
 
 // knownHosts maps host patterns to their provider identification.
