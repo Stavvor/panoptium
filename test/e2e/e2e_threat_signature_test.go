@@ -233,10 +233,7 @@ spec:
 	// -------------------------------------------------------------------
 	Context("TS-2: Invalid ThreatSignature Rejection", func() {
 
-		It("should set Ready=False for a ThreatSignature with invalid regex", func() {
-			// Note: The ThreatSignature validating webhook is not yet wired in the
-			// Helm chart / kustomize, so invalid regex is accepted at admission but
-			// the controller sets Ready=False with CompilationFailed reason.
+		It("should reject a ThreatSignature with invalid regex at admission", func() {
 			sigName := uniqueName("ts2-bad-regex")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
 kind: ThreatSignature
@@ -259,30 +256,7 @@ spec:
 			cmd := exec.Command("kubectl", "apply", "-f", "-")
 			cmd.Stdin = strings.NewReader(yaml)
 			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "CRD should accept the resource (webhook not wired)")
-
-			DeferCleanup(func() {
-				cmd := exec.Command("kubectl", "delete", "threatsignature", sigName,
-					"--ignore-not-found=true")
-				_, _ = utils.Run(cmd)
-			})
-
-			By("waiting for Ready=False with CompilationFailed reason")
-			verifyNotReady := func(g Gomega) {
-				cmd := exec.Command("kubectl", "get", "threatsignature", sigName,
-					"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("False"), "Should have Ready=False for invalid regex")
-
-				cmd = exec.Command("kubectl", "get", "threatsignature", sigName,
-					"-o", "jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}")
-				reason, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(reason).To(Equal("CompilationFailed"),
-					"Reason should be CompilationFailed for invalid regex")
-			}
-			Eventually(verifyNotReady, 2*time.Minute, 5*time.Second).Should(Succeed())
+			Expect(err).To(HaveOccurred(), "webhook should reject invalid regex")
 		})
 
 		It("should reject a ThreatSignature with invalid severity at CRD schema level", func() {
