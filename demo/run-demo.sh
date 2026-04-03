@@ -311,8 +311,9 @@ scenario_c() {
   info "Applying deny-pod-logs policy..."
   $K apply -f "${DEMO_DIR}/manifests/deny-pod-logs-policy.yaml"
 
-  info "Temporarily removing e2e llm-route (conflicts with demo route)..."
+  info "Temporarily removing conflicting routes..."
   $K delete httproute llm-route -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
+  $K delete httproute demo-openai-route -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
 
   info "Deploying hallucinating mock LLM + switching gateway route..."
   $K apply -f "${DEMO_DIR}/manifests/mock-llm-hallucination.yaml"
