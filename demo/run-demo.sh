@@ -358,15 +358,18 @@ scenario_c() {
   # Give gateway time to pick up the new route
   sleep 3
 
-  info "Opening direct port-forward to gateway..."
-  gateway_port_forward_start || { err "Skipping scenario."; pause; return; }
-
   # ── Execute ──
+  # Send request from INSIDE the cluster (port-forward bypasses ExtProc filter chain)
+  local gw_ip
+  gw_ip=$($K get svc e2e-gateway -n "$GATEWAY_NS" -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+  if [[ -z "$gw_ip" ]]; then
+    err "Cannot find gateway service IP."
+    pause; return
+  fi
+
   echo ""
-  info "Sending request with tools: [k8s_get_pod_logs, k8s_get_resources]"
-  echo ""
-  echo -e "  ${BOLD}POST /v1/chat/completions → gateway:${GATEWAY_DIRECT_PORT}${RESET}"
-  echo -e "  ${BOLD}Tools: k8s_get_pod_logs, k8s_get_resources${RESET}"
+  info "Sending request from in-cluster curl pod to gateway (${gw_ip}:8080)"
+  info "Tools: [k8s_get_pod_logs, k8s_get_resources]"
   echo ""
   echo -e "  ${CYAN}Expected flow:${RESET}"
   echo -e "    1. Panoptium strips k8s_get_pod_logs from request tools[]"
@@ -374,24 +377,24 @@ scenario_c() {
   echo -e "    3. Panoptium intercepts response mid-stream → HTTP 403"
   echo ""
 
-  local http_response http_code http_body
-  http_response=$(curl -s -w "\n%{http_code}" --max-time 30 \
-    "http://localhost:${GATEWAY_DIRECT_PORT}/v1/chat/completions" \
-    -X POST \
+  local output
+  output=$($K run demo-curl-hallucination --rm -i --restart=Never \
+    -n "$GATEWAY_NS" \
+    --image=curlimages/curl:7.78.0 \
+    -- -s -w "\n---HTTP_STATUS:%{http_code}---" --max-time 30 \
+    -X POST "http://${gw_ip}:8080/v1/chat/completions" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer mock-key" \
-    -d '{
-      "model": "gpt-4",
-      "messages": [{"role": "user", "content": "Show me the pod logs for panoptium-controller-manager."}],
-      "stream": true,
-      "tools": [
-        {"type": "function", "function": {"name": "k8s_get_pod_logs", "description": "Get pod logs", "parameters": {"type": "object"}}},
-        {"type": "function", "function": {"name": "k8s_get_resources", "description": "Get K8s resources", "parameters": {"type": "object"}}}
-      ]
-    }' 2>&1)
+    -d '{"model":"gpt-4","messages":[{"role":"user","content":"Show pod logs"}],"stream":true,"tools":[{"type":"function","function":{"name":"k8s_get_pod_logs","description":"Get pod logs","parameters":{"type":"object"}}},{"type":"function","function":{"name":"k8s_get_resources","description":"Get K8s resources","parameters":{"type":"object"}}}]}' \
+    2>/dev/null)
 
-  http_code=$(echo "$http_response" | tail -1)
-  http_body=$(echo "$http_response" | sed '$d')
+  local http_code http_body
+  if echo "$output" | grep -q "---HTTP_STATUS:"; then
+    http_code=$(echo "$output" | grep -o 'HTTP_STATUS:[0-9]*' | cut -d: -f2)
+    http_body=$(echo "$output" | sed 's/---HTTP_STATUS:[0-9]*---//')
+  else
+    http_code="N/A"
+    http_body="$output"
+  fi
 
   echo -e "${BOLD}Response: HTTP ${http_code}${RESET}"
   if [[ "$http_code" == "403" ]]; then
@@ -410,7 +413,6 @@ scenario_c() {
   # ── Cleanup ──
   echo ""
   info "Cleaning up: restoring routes, removing mock LLM..."
-  gateway_port_forward_stop
   $K apply -f "${DEMO_DIR}/manifests/agentgateway-openai-backend.yaml"
   $K apply -f "$(dirname "$DEMO_DIR")/test/e2e/manifests/agentgateway-route.yaml" 2>/dev/null || true
   $K delete deployment mock-llm-hallucination -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
