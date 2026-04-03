@@ -344,6 +344,9 @@ scenario_c() {
   info "Applying deny-pod-logs policy..."
   $K apply -f "${DEMO_DIR}/manifests/deny-pod-logs-policy.yaml"
 
+  info "Temporarily removing e2e llm-route (conflicts with demo route)..."
+  $K delete httproute llm-route -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
+
   info "Deploying hallucinating mock LLM + switching gateway route..."
   $K apply -f "${DEMO_DIR}/manifests/mock-llm-hallucination.yaml"
 
@@ -406,9 +409,10 @@ scenario_c() {
 
   # ── Cleanup ──
   echo ""
-  info "Cleaning up: restoring OpenAI route, removing mock LLM..."
+  info "Cleaning up: restoring routes, removing mock LLM..."
   gateway_port_forward_stop
   $K apply -f "${DEMO_DIR}/manifests/agentgateway-openai-backend.yaml"
+  $K apply -f "$(dirname "$DEMO_DIR")/test/e2e/manifests/agentgateway-route.yaml" 2>/dev/null || true
   $K delete deployment mock-llm-hallucination -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
   $K delete service mock-llm-hallucination -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
   $K delete agentgatewaybackend mock-llm-hallucination-backend -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
