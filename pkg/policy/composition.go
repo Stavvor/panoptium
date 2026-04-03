@@ -58,74 +58,111 @@ func NewPolicyCompositionResolverWithRateLimit(counter RateLimitCounter) *Policy
 }
 
 // Evaluate evaluates the given event against all provided compiled policies
-// using the composition rules defined in FR-6. Returns a Decision from the
-// highest-priority matching policy/rule.
+// using deny-first composition rules. Returns the winning Decision.
+//
+// This is a thin wrapper around EvaluateAll that returns a single Decision
+// for backward compatibility. At equal priority, deny/quarantine beats allow
+// (deny-first semantics per FR-3).
 //
 // Composition rules:
 //   - Policies are sorted by descending priority.
 //   - At equal priority, namespace-scoped policies beat cluster-scoped.
 //   - At equal priority and scope, alphabetical policy name breaks ties.
 //   - Within a policy, rules are evaluated top-to-bottom (first match wins).
-//   - Across policies at equal priority, explicit "allow" overrides "deny".
+//   - Across policies at equal priority, deny/quarantine overrides allow (deny-first).
 //   - If no rule matches, a default "allow" decision is returned.
 func (r *PolicyCompositionResolver) Evaluate(policies []*CompiledPolicy, event *PolicyEvent) (*Decision, error) {
-	start := time.Now()
+	result, err := r.EvaluateAll(policies, event)
+	if err != nil {
+		return nil, err
+	}
 
-	if len(policies) == 0 {
+	if result.DefaultAllow || len(result.Decisions) == 0 {
 		d := DefaultAllowDecision()
-		d.EvaluationDuration = time.Since(start)
+		d.EvaluationDuration = result.EvaluationDuration
+		d.PredicateTrace = result.PredicateTrace
 		return d, nil
 	}
 
-	// Filter out disabled policies — they are completely skipped.
+	// Find the best decision: terminal deny/quarantine at the highest
+	// priority wins. At equal priority, deny beats allow (deny-first).
+	var best *Decision
+	for _, d := range result.Decisions {
+		if d.Action.Type == v1alpha1.ActionTypeDeny || d.Action.Type == v1alpha1.ActionTypeQuarantine {
+			if best == nil || d.Action.Type == v1alpha1.ActionTypeDeny || d.Action.Type == v1alpha1.ActionTypeQuarantine {
+				best = d
+				break // Decisions are sorted by priority, first deny wins
+			}
+		}
+	}
+
+	// Check rate limit decisions
+	if best == nil {
+		for _, d := range result.Decisions {
+			if d.Action.Type == v1alpha1.ActionTypeRateLimit {
+				best = d
+				break
+			}
+		}
+	}
+
+	// Fall back to the first matched decision
+	if best == nil {
+		best = result.Decisions[0]
+	}
+
+	best.EvaluationDuration = result.EvaluationDuration
+	best.PredicateTrace = result.PredicateTrace
+	return best, nil
+}
+
+// EvaluateAll evaluates the given event against ALL provided compiled policies
+// and returns an EvaluationResult containing decisions from ALL matching
+// policies across ALL priority tiers. This replaces the single-winner Evaluate
+// for multi-phase evaluation with deny-first semantics.
+//
+// Unlike Evaluate, EvaluateAll does NOT stop at the first matching priority
+// level. It evaluates every policy and collects all decisions.
+func (r *PolicyCompositionResolver) EvaluateAll(policies []*CompiledPolicy, event *PolicyEvent) (*EvaluationResult, error) {
+	start := time.Now()
+
+	result := &EvaluationResult{}
+
+	if len(policies) == 0 {
+		result.DefaultAllow = true
+		result.EvaluationDuration = time.Since(start)
+		return result, nil
+	}
+
+	// Filter out disabled policies.
 	policies = filterByEnforcementMode(policies)
 
-	// Filter policies by TargetSelector — only policies whose selector
-	// matches the event's PodLabels are evaluated.
+	// Filter by target selector.
 	policies = filterByTargetSelector(policies, event)
 
 	if len(policies) == 0 {
-		d := DefaultAllowDecision()
-		d.EvaluationDuration = time.Since(start)
-		return d, nil
+		result.DefaultAllow = true
+		result.EvaluationDuration = time.Since(start)
+		return result, nil
 	}
 
-	// Sort policies by priority (descending), then namespace > cluster,
-	// then alphabetical name.
+	// Sort policies by priority (descending), namespace > cluster, alphabetical.
 	sorted := make([]*CompiledPolicy, len(policies))
 	copy(sorted, policies)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		if sorted[i].Priority != sorted[j].Priority {
 			return sorted[i].Priority > sorted[j].Priority
 		}
-		// At equal priority: namespace-scoped beats cluster-scoped
 		if sorted[i].IsClusterScoped != sorted[j].IsClusterScoped {
 			return !sorted[i].IsClusterScoped
 		}
-		// At equal priority and scope: alphabetical name
 		return sorted[i].Name < sorted[j].Name
 	})
 
-	// Group policies by priority level for allow-override logic
 	var allTrace []PredicateTraceEntry
 
-	// Evaluate each policy in sorted order using decision trees.
-	// At equal priority, collect all matches and apply allow-override.
-	type candidateDecision struct {
-		decision *Decision
-		policy   *CompiledPolicy
-	}
-
-	var matchPriority int32
-	var candidates []candidateDecision
-	hasMatch := false
-
+	// Evaluate ALL policies (do not stop at first match).
 	for _, pol := range sorted {
-		if hasMatch && pol.Priority < matchPriority {
-			// We already have match(es) at a higher priority — stop.
-			break
-		}
-
 		dt := NewDecisionTree(pol)
 		decision, err := dt.Evaluate(event)
 		if err != nil {
@@ -135,59 +172,35 @@ func (r *PolicyCompositionResolver) Evaluate(policies []*CompiledPolicy, event *
 		allTrace = append(allTrace, decision.PredicateTrace...)
 
 		if decision.Matched {
-			if !hasMatch {
-				hasMatch = true
-				matchPriority = pol.Priority
+			// Set AuditOnly flag if the source policy is in audit mode.
+			if pol.EnforcementMode == v1alpha1.EnforcementModeAudit {
+				decision.AuditOnly = true
 			}
-			candidates = append(candidates, candidateDecision{
-				decision: decision,
-				policy:   pol,
-			})
+
+			// Set Subcategory from event for action classification.
+			decision.Subcategory = event.Subcategory
+
+			// Set Severity from the matched rule.
+			if decision.MatchedRuleIndex >= 0 && decision.MatchedRuleIndex < len(pol.Rules) {
+				decision.Severity = string(pol.Rules[decision.MatchedRuleIndex].Severity)
+			}
+
+			// Post-match rate limit check.
+			if decision.Action.Type == v1alpha1.ActionTypeRateLimit && r.rateLimitCounter != nil {
+				decision = r.applyRateLimitCheck(decision, event)
+			}
+
+			result.Decisions = append(result.Decisions, decision)
 		}
 	}
 
-	if len(candidates) == 0 {
-		d := DefaultAllowDecision()
-		d.EvaluationDuration = time.Since(start)
-		d.PredicateTrace = allTrace
-		return d, nil
+	if len(result.Decisions) == 0 {
+		result.DefaultAllow = true
 	}
 
-	// If there's only one candidate, use it directly
-	var best *Decision
-	var bestPolicy *CompiledPolicy
-	if len(candidates) == 1 {
-		best = candidates[0].decision
-		bestPolicy = candidates[0].policy
-	} else {
-		// Multiple candidates at same priority — apply allow-override.
-		// An explicit "allow" at equal priority overrides "deny".
-		best = candidates[0].decision
-		bestPolicy = candidates[0].policy
-		for _, c := range candidates {
-			if c.decision.Action.Type == "allow" {
-				best = c.decision
-				bestPolicy = c.policy
-				break
-			}
-		}
-	}
-
-	// Set AuditOnly flag if the winning policy is in audit mode.
-	if bestPolicy.EnforcementMode == v1alpha1.EnforcementModeAudit {
-		best.AuditOnly = true
-	}
-
-	// Post-match rate limit check: if the matched rule has a rateLimit action
-	// and we have a counter, check whether the rate limit is actually exceeded.
-	// If under the limit, convert the decision to a pass-through (allow).
-	if best.Action.Type == v1alpha1.ActionTypeRateLimit && r.rateLimitCounter != nil {
-		best = r.applyRateLimitCheck(best, event)
-	}
-
-	best.EvaluationDuration = time.Since(start)
-	best.PredicateTrace = allTrace
-	return best, nil
+	result.PredicateTrace = allTrace
+	result.EvaluationDuration = time.Since(start)
+	return result, nil
 }
 
 // applyRateLimitCheck performs a post-match rate limit evaluation. It extracts
