@@ -39,7 +39,7 @@ $K delete httproute demo-openai-route -n "$GATEWAY_NS" --ignore-not-found 2>/dev
 
 # Remove Panoptium policies
 info "Removing Panoptium policies..."
-for policy in demo-audit-baseline demo-allow-safe-tools demo-deny-bash demo-rate-limit demo-escalate-quarantine; do
+for policy in demo-audit-baseline demo-allow-safe-tools demo-deny-bash demo-deny-pod-logs demo-rate-limit demo-escalate-quarantine; do
   $K delete agentpolicy "$policy" -n "$GATEWAY_NS" --ignore-not-found 2>/dev/null || true
 done
 

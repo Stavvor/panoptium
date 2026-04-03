@@ -250,17 +250,20 @@ scenario_a() {
 }
 
 scenario_b() {
-  banner "Scenario B: Denied Request (Bash Tool Block)"
-  info "The Kagent agent will be asked to run a bash command."
-  info "Panoptium's deny-bash policy (priority 100, enforcing) will"
-  info "intercept the tool_call event and block it."
+  banner "Scenario B: Denied Request (Pod Log Access Blocked)"
+  info "The agent will try to fetch pod logs using k8s_get_pod_logs."
+  info "Panoptium sees this tool in the OpenAI request body and blocks"
+  info "it with HTTP 403 BEFORE the request reaches OpenAI."
+  info ""
+  info "Policy: demo-deny-pod-logs (priority 100, enforcing)"
+  info "Trigger: tool_call where toolName == 'k8s_get_pod_logs'"
   pause
 
-  kagent_invoke "Run the bash command 'ls -la /etc/passwd' and show me the output."
+  kagent_invoke "Show me the logs for the panoptium-controller-manager pod in the panoptium-system namespace."
 
   show_panoptium_logs 15
-  info "The deny-bash policy should have blocked the tool_call."
-  info "Check for DENY events in the logs above."
+  info "The deny-pod-logs policy should have returned HTTP 403."
+  info "Check for DENY / enforcement events in the logs above."
   pause
 }
 
@@ -312,7 +315,7 @@ echo "                   (policy enforcement)"
 echo ""
 echo "Scenarios:"
 echo "  A) Happy path  -- agent request observed by audit policy"
-echo "  B) Deny bash   -- tool_call blocked by enforcing policy"
+echo "  B) Deny tool   -- pod log access blocked by enforcing policy"
 echo "  C) Rate limit  -- agent throttled after 5 req/min"
 echo "  D) Quarantine  -- escalation after repeated violations"
 echo ""
@@ -326,7 +329,7 @@ while true; do
   echo ""
   echo -e "${BOLD}Select a scenario:${RESET}"
   echo "  a) Happy path"
-  echo "  b) Deny bash tool"
+  echo "  b) Deny pod log access"
   echo "  c) Rate limiting"
   echo "  d) Quarantine escalation"
   echo "  q) Quit"
