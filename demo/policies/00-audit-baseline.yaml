@@ -1,23 +1,26 @@
 ---
-# Baseline audit policy: observe all LLM traffic without blocking.
-# This captures every request/response flowing through the AgentGateway
-# so operators have full visibility into agent behaviour.
+# Observe all LLM traffic without blocking anything.
+# Audit mode: policy decisions are logged and published to NATS, never enforced.
 apiVersion: panoptium.io/v1alpha1
-kind: AgentPolicy
+kind: AgentClusterPolicy
 metadata:
   name: demo-audit-baseline
-  namespace: panoptium-system
 spec:
+  targetSelector: {}
   enforcementMode: audit
-  priority: 500
-  targetSelector:
-    matchLabels:
-      gateway.networking.k8s.io/gateway-name: e2e-gateway
+  priority: 10
   rules:
+    - name: audit-all-tool-calls
+      severity: INFO
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      action:
+        type: deny
     - name: audit-all-llm-requests
       severity: INFO
       trigger:
-        eventCategory: llm
-        eventSubcategory: "*"
+        eventCategory: protocol
+        eventSubcategory: llm_request
       action:
-        type: alert
+        type: deny

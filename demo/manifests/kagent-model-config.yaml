@@ -13,4 +13,4 @@ spec:
   apiKeySecret: openai-api-key
   apiKeySecretKey: api-key
   openAI:
-    baseUrl: "http://e2e-gateway.panoptium-system.svc.cluster.local:8080/v1"
+    baseUrl: "http://e2e-gateway.panoptium-system.svc.cluster.local:8080"

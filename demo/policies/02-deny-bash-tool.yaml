@@ -1,28 +1,23 @@
 ---
-# Deny dangerous shell/bash execution tools.
-# Prevents the agent from breaking out of its sandbox via arbitrary command execution.
+# Block dangerous tools: bash, shell_exec, run_command, execute.
+# Any request declaring these tools gets HTTP 403.
 apiVersion: panoptium.io/v1alpha1
-kind: AgentPolicy
+kind: AgentClusterPolicy
 metadata:
   name: demo-deny-bash
-  namespace: panoptium-system
 spec:
+  targetSelector: {}
   enforcementMode: enforcing
   priority: 100
-  targetSelector:
-    matchLabels:
-      gateway.networking.k8s.io/gateway-name: e2e-gateway
   rules:
-    - name: deny-shell-exec
+    - name: block-dangerous-tools
       severity: HIGH
       trigger:
-        eventCategory: llm
-        eventSubcategory: "tool_call"
+        eventCategory: protocol
+        eventSubcategory: tool_call
       predicates:
-        - cel: >-
-            event.metadata.tool_name == "bash" ||
-            event.metadata.tool_name == "shell_exec" ||
-            event.metadata.tool_name == "run_command" ||
-            event.metadata.tool_name == "execute"
+        - cel: "event.toolName == 'bash' || event.toolName == 'shell_exec' || event.toolName == 'run_command' || event.toolName == 'execute'"
       action:
         type: deny
+        parameters:
+          message: "dangerous tool blocked by Panoptium security policy"
