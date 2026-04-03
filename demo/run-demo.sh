@@ -9,7 +9,6 @@ GATEWAY_NS="panoptium-system"
 KAGENT_NS="kagent"
 KAGENT_CTRL_PORT=8083
 KAGENT_AGENT_PORT=8080
-GATEWAY_DIRECT_PORT=8081
 DEMO_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 BOLD='\033[1m'
@@ -230,7 +229,6 @@ port_forward_start() {
 
 cleanup() {
   [[ -n "${KAGENT_PF_PID:-}" ]] && kill "$KAGENT_PF_PID" 2>/dev/null || true
-  [[ -n "${GATEWAY_PF_PID:-}" ]] && kill "$GATEWAY_PF_PID" 2>/dev/null || true
   info "Port-forwards stopped."
 }
 trap cleanup EXIT
@@ -290,37 +288,6 @@ ensure_mock_llm_image() {
   kind load docker-image "$img" --name panoptium-e2e
 }
 
-gateway_port_forward_start() {
-  pkill -f "kubectl.*port-forward.*${GATEWAY_DIRECT_PORT}:8080" 2>/dev/null || true
-  sleep 1
-
-  local gw_pod
-  gw_pod=$($K get pod -n "$GATEWAY_NS" \
-    -l gateway.networking.k8s.io/gateway-name=e2e-gateway \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-
-  if [[ -z "$gw_pod" ]]; then
-    err "Cannot find gateway pod."
-    return 1
-  fi
-
-  $K port-forward -n "$GATEWAY_NS" "$gw_pod" "${GATEWAY_DIRECT_PORT}:8080" &>/dev/null &
-  GATEWAY_PF_PID=$!
-  sleep 2
-
-  if kill -0 "$GATEWAY_PF_PID" 2>/dev/null; then
-    info "Gateway port-forward active on localhost:${GATEWAY_DIRECT_PORT}"
-  else
-    err "Could not port-forward to gateway pod."
-    return 1
-  fi
-}
-
-gateway_port_forward_stop() {
-  [[ -n "${GATEWAY_PF_PID:-}" ]] && kill "$GATEWAY_PF_PID" 2>/dev/null || true
-  GATEWAY_PF_PID=""
-}
-
 scenario_c() {
   banner "Scenario C: Response-Path Defense (Tool Hallucination)"
   info "This scenario demonstrates defense-in-depth against tool hallucination."
@@ -359,50 +326,16 @@ scenario_c() {
   sleep 3
 
   # ── Execute ──
-  # Send request from INSIDE the cluster (port-forward bypasses ExtProc filter chain)
-  local gw_ip
-  gw_ip=$($K get svc e2e-gateway -n "$GATEWAY_NS" -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
-  if [[ -z "$gw_ip" ]]; then
-    err "Cannot find gateway service IP."
-    pause; return
-  fi
-
-  echo ""
-  info "Sending request from in-cluster curl pod to gateway (${gw_ip}:8080)"
-  info "Tools: [k8s_get_pod_logs, k8s_get_resources]"
+  # Use kagent agent (agentic traffic gets full ExtProc body processing)
   echo ""
   echo -e "  ${CYAN}Expected flow:${RESET}"
-  echo -e "    1. Panoptium strips k8s_get_pod_logs from request tools[]"
-  echo -e "    2. Mock LLM returns tool_call for k8s_get_pod_logs anyway"
-  echo -e "    3. Panoptium intercepts response mid-stream → HTTP 403"
+  echo -e "    1. Kagent sends request through gateway → mock LLM"
+  echo -e "    2. Panoptium strips k8s_get_pod_logs from request tools[]"
+  echo -e "    3. Mock LLM ignores strip, returns tool_call for k8s_get_pod_logs"
+  echo -e "    4. Panoptium intercepts response mid-stream → HTTP 403"
   echo ""
 
-  local output
-  output=$($K run demo-curl-hallucination --rm -i --restart=Never \
-    -n "$GATEWAY_NS" \
-    --image=curlimages/curl:7.78.0 \
-    -- -s -w "\n---HTTP_STATUS:%{http_code}---" --max-time 30 \
-    -X POST "http://${gw_ip}:8080/v1/chat/completions" \
-    -H "Content-Type: application/json" \
-    -d '{"model":"gpt-4","messages":[{"role":"user","content":"Show pod logs"}],"stream":true,"tools":[{"type":"function","function":{"name":"k8s_get_pod_logs","description":"Get pod logs","parameters":{"type":"object"}}},{"type":"function","function":{"name":"k8s_get_resources","description":"Get K8s resources","parameters":{"type":"object"}}}]}' \
-    2>/dev/null)
-
-  local http_code http_body
-  if echo "$output" | grep -qF "HTTP_STATUS:"; then
-    http_code=$(echo "$output" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
-    http_body=$(echo "$output" | sed 's/---HTTP_STATUS:[0-9]*---//')
-  else
-    http_code="N/A"
-    http_body="$output"
-  fi
-
-  echo -e "${BOLD}Response: HTTP ${http_code}${RESET}"
-  if [[ "$http_code" == "403" ]]; then
-    echo -e "${RED}[BLOCKED]${RESET} Response-path enforcement triggered!"
-    echo "$http_body" | jq . 2>/dev/null || echo "$http_body"
-  else
-    echo "$http_body" | head -20
-  fi
+  kagent_invoke "Show me the logs for the panoptium-controller-manager pod."
   echo ""
 
   show_panoptium_logs 20
