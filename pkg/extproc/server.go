@@ -336,28 +336,19 @@ func (s *ExtProcServer) handleRequestBody(ctx context.Context, state *streamStat
 	}
 
 	// Echo body back via StreamedBodyResponse — AgentGateway operates in
-	// streaming mode and rejects BodyMutation_Body variant.
+	// streaming mode and concatenates Body bytes from ALL chunk responses.
 	//
-	// AgentGateway concatenates Body bytes from ALL chunk responses into the
-	// final request body. Two cases:
-	//
-	// 1. Body NOT modified (no tool stripping): echo each raw chunk as-is.
-	// 2. Body WAS modified (tools stripped): send empty bytes for intermediate
-	//    chunks, then send the full modified body on the final chunk.
+	// Always buffer: send empty bytes for intermediate chunks, send the full
+	// body (original or modified) only on the final chunk. This prevents a
+	// race where intermediate chunks are echoed raw but the final chunk
+	// contains a modified body (tool stripping), producing corrupted output.
 	var echoBody []byte
 	eos := body.GetEndOfStream()
 
-	if state.requestBodyModified {
-		// Body was modified by tool stripping — hold intermediate chunks,
-		// send full modified body only on the final chunk.
-		if eos {
-			echoBody = state.requestBody
-		}
-		// else: empty body for intermediate chunks
-	} else {
-		// Body unmodified — echo each raw chunk as-is.
-		echoBody = body.GetBody()
+	if eos {
+		echoBody = state.requestBody
 	}
+	// else: nil/empty body for intermediate chunks
 
 	return &extprocv3.ProcessingResponse{
 		Response: &extprocv3.ProcessingResponse_RequestBody{
