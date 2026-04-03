@@ -164,6 +164,18 @@ func (o *LLMObserver) ProcessResponseStream(_ context.Context, streamCtx *observ
 					TokenIndex: streamCtx.TokenCount - 1,
 				})
 			}
+
+			// Accumulate tool call deltas
+			for _, tc := range chunk.ToolCalls {
+				accumulateToolCallDelta(streamCtx, tc.Index, tc.ID, tc.FunctionName)
+			}
+
+			// Mark tool calls as complete when finish_reason is "tool_calls"
+			if chunk.FinishReason == "tool_calls" {
+				for i := range streamCtx.ResponseToolCalls {
+					streamCtx.ResponseToolCalls[i].Complete = true
+				}
+			}
 		}
 	case providerAnthropic:
 		events, err := anthropic.ParseSSEFrame(body)
@@ -228,6 +240,29 @@ func (o *LLMObserver) Finalize(_ context.Context, streamCtx *observer.StreamCont
 	})
 
 	return nil
+}
+
+// accumulateToolCallDelta accumulates a tool call delta into the StreamContext's
+// ResponseToolCalls. Names are concatenated across chunks for the same index.
+func accumulateToolCallDelta(streamCtx *observer.StreamContext, index int, id, nameFrag string) {
+	// Find existing entry for this index
+	for i := range streamCtx.ResponseToolCalls {
+		if streamCtx.ResponseToolCalls[i].Index == index {
+			// Accumulate name fragment
+			streamCtx.ResponseToolCalls[i].Name += nameFrag
+			if id != "" {
+				streamCtx.ResponseToolCalls[i].ID = id
+			}
+			return
+		}
+	}
+
+	// New tool call index — create entry
+	streamCtx.ResponseToolCalls = append(streamCtx.ResponseToolCalls, observer.ResponseToolCall{
+		Index: index,
+		ID:    id,
+		Name:  nameFrag,
+	})
 }
 
 // detectProvider determines the LLM provider from the request path.

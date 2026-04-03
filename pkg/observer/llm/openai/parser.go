@@ -59,11 +59,31 @@ type StreamChunk struct {
 	// Content is the token text content from this chunk.
 	Content string
 
-	// FinishReason is set on the final chunk (e.g., "stop", "length").
+	// FinishReason is set on the final chunk (e.g., "stop", "length", "tool_calls").
 	FinishReason string
 
 	// Done indicates this is the [DONE] sentinel.
 	Done bool
+
+	// ToolCalls contains incremental tool call deltas from this chunk.
+	// Each entry corresponds to one tool_calls[i] in the delta.
+	ToolCalls []ToolCallDelta
+}
+
+// ToolCallDelta represents an incremental tool call update from a streaming
+// response chunk. Tool call data may be fragmented across multiple chunks.
+type ToolCallDelta struct {
+	// Index is the tool call index (for parallel tool calls).
+	Index int
+
+	// ID is the tool call identifier (set on the first chunk for this index).
+	ID string
+
+	// FunctionName is the function name fragment from this chunk.
+	FunctionName string
+
+	// FunctionArguments is the function arguments fragment from this chunk.
+	FunctionArguments string
 }
 
 // ChatCompletionResponse represents a parsed non-streaming response.
@@ -110,12 +130,24 @@ type rawMessage struct {
 	Content string `json:"content"`
 }
 
+// rawToolCallDelta is the internal JSON structure for a tool call delta.
+type rawToolCallDelta struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 // rawChunk is the internal JSON structure for SSE chunk deserialization.
 type rawChunk struct {
 	ID      string `json:"id"`
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string             `json:"content"`
+			ToolCalls []rawToolCallDelta `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
@@ -190,9 +222,20 @@ func ParseSSEChunk(data []byte) (*StreamChunk, error) {
 	}
 
 	if len(raw.Choices) > 0 {
-		chunk.Content = raw.Choices[0].Delta.Content
-		if raw.Choices[0].FinishReason != nil {
-			chunk.FinishReason = *raw.Choices[0].FinishReason
+		choice := raw.Choices[0]
+		chunk.Content = choice.Delta.Content
+		if choice.FinishReason != nil {
+			chunk.FinishReason = *choice.FinishReason
+		}
+
+		// Extract tool call deltas
+		for _, tc := range choice.Delta.ToolCalls {
+			chunk.ToolCalls = append(chunk.ToolCalls, ToolCallDelta{
+				Index:             tc.Index,
+				ID:                tc.ID,
+				FunctionName:      tc.Function.Name,
+				FunctionArguments: tc.Function.Arguments,
+			})
 		}
 	}
 

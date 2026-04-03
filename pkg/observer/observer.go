@@ -110,6 +110,26 @@ type StreamContext struct {
 	// Populated by the LLM observer from provider-specific parsing
 	// (OpenAI tools[].function.name, Anthropic tools[].name).
 	ToolNames []string
+
+	// ResponseToolCalls tracks tool calls detected in the LLM response stream.
+	// Each entry represents a tool call being accumulated from streaming chunks.
+	// Tool call names may be fragmented across multiple SSE events.
+	ResponseToolCalls []ResponseToolCall
+}
+
+// ResponseToolCall represents a tool call detected in an LLM response stream.
+type ResponseToolCall struct {
+	// Index is the tool call index (for parallel tool calls).
+	Index int
+
+	// ID is the tool call identifier from the response.
+	ID string
+
+	// Name is the accumulated function name.
+	Name string
+
+	// Complete indicates whether the tool call name has been fully assembled.
+	Complete bool
 }
 
 // ObserverConfig defines the configuration for registering an observer.

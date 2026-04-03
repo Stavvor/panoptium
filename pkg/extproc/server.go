@@ -128,6 +128,10 @@ type streamState struct {
 
 	// startEventEmitted indicates the LLMRequestStart event has been emitted.
 	startEventEmitted bool
+
+	// evaluatedToolCallCount tracks how many response tool calls have already
+	// been evaluated against policy, to avoid re-evaluating the same tool call.
+	evaluatedToolCallCount int
 }
 
 // Process implements the ExternalProcessor bidirectional streaming RPC.
@@ -373,6 +377,15 @@ func (s *ExtProcServer) handleResponseBody(ctx context.Context, state *streamSta
 		newTokens := state.streamCtx.TokenCount - prevTokenCount
 		if newTokens > 0 {
 			RecordTokensObserved(state.streamCtx.Provider, newTokens)
+		}
+	}
+
+	// Response-path tool_call enforcement: check for newly completed tool calls
+	// in the response stream and evaluate against policy.
+	if s.policyEvaluator != nil && state.streamCtx != nil {
+		resp := s.evaluateResponseToolCalls(ctx, state, logger)
+		if resp != nil {
+			return resp
 		}
 	}
 
@@ -695,6 +708,64 @@ func (s *ExtProcServer) emitPerToolDecisionEvent(decision *policy.Decision, agen
 		PolicyName:      decision.PolicyName,
 		PolicyNamespace: decision.PolicyNamespace,
 	})
+}
+
+// evaluateResponseToolCalls checks the StreamContext for newly completed
+// tool calls in the response stream and evaluates each against the policy
+// engine. Returns an ImmediateResponse if a tool call should be blocked.
+func (s *ExtProcServer) evaluateResponseToolCalls(ctx context.Context, state *streamState, logger interface{ Info(string, ...interface{}) }) *extprocv3.ProcessingResponse {
+	sc := state.streamCtx
+	if sc == nil {
+		return nil
+	}
+
+	// Check for new completed tool calls since last evaluation
+	for i := state.evaluatedToolCallCount; i < len(sc.ResponseToolCalls); i++ {
+		tc := sc.ResponseToolCalls[i]
+		if !tc.Complete || tc.Name == "" {
+			continue
+		}
+
+		// Mark as evaluated
+		state.evaluatedToolCallCount = i + 1
+
+		// Build PolicyEvent for the response-path tool call
+		policyEvent := &policy.PolicyEvent{
+			Category:    "protocol",
+			Subcategory: "tool_call",
+			Timestamp:   time.Now(),
+			Namespace:   sc.AgentIdentity.Namespace,
+			PodName:     sc.AgentIdentity.PodName,
+			PodLabels:   sc.AgentIdentity.Labels,
+			Fields: map[string]interface{}{
+				"toolName":  tc.Name,
+				"requestID": sc.RequestID,
+				"direction": "response",
+			},
+		}
+
+		decision, err := s.policyEvaluator.Evaluate(policyEvent)
+		if err != nil {
+			resp := s.handleEvaluationError(err, sc.AgentIdentity, sc.RequestID, logger)
+			if resp != nil {
+				s.finalizeStream(ctx, state)
+				return resp
+			}
+			continue
+		}
+
+		if decision == nil || !decision.Matched {
+			continue
+		}
+
+		resp := s.applyEnforcementDecision(decision, sc.AgentIdentity, sc.RequestID)
+		if resp != nil {
+			s.finalizeStream(ctx, state)
+			return resp
+		}
+	}
+
+	return nil
 }
 
 // handleEvaluationError handles policy evaluation errors based on the
