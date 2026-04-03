@@ -42,6 +42,10 @@ const (
 	// EventTypePolicyDecision is emitted when a policy evaluation produces a
 	// match (deny, throttle, modify, suspend).
 	EventTypePolicyDecision = "policy.decision"
+
+	// EventTypeToolStripped is emitted when a tool is stripped from a request
+	// body due to a deny policy on the tool_call subcategory.
+	EventTypeToolStripped = "enforcement.tool_stripped"
 )
 
 // Protocol constants identify the protocol of the observed traffic.
@@ -218,6 +222,21 @@ type LLMRequestCompleteEvent struct {
 
 	// FinishReason is the reason the response ended (e.g., "stop", "length").
 	FinishReason string
+}
+
+// ToolStrippedEvent is emitted when a tool is stripped from a request body
+// due to a deny policy on the tool_call subcategory.
+type ToolStrippedEvent struct {
+	BaseEvent
+
+	// ToolName is the name of the tool that was stripped.
+	ToolName string
+
+	// PolicyName is the name of the policy that triggered the strip.
+	PolicyName string
+
+	// RuleName is the name of the rule within the policy.
+	RuleName string
 }
 
 // EnforcementEvent is emitted for enforcement-related occurrences such as

@@ -56,6 +56,15 @@ var (
 		},
 		[]string{"provider", "phase"},
 	)
+
+	// toolsStrippedTotal tracks the total number of tools stripped from request bodies.
+	toolsStrippedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "panoptium_tools_stripped_total",
+			Help: "Total number of tools stripped from request bodies by deny policies",
+		},
+		[]string{"tool", "policy", "agent_namespace", "agent_pod"},
+	)
 )
 
 func init() {
@@ -64,6 +73,7 @@ func init() {
 		requestsTotal,
 		tokensObservedTotal,
 		parseErrorsTotal,
+		toolsStrippedTotal,
 	)
 }
 
@@ -90,4 +100,10 @@ func RecordTokensObserved(provider string, count int) {
 // RecordParseError increments the parse errors counter for the given provider and phase.
 func RecordParseError(provider, phase string) {
 	parseErrorsTotal.WithLabelValues(provider, phase).Inc()
+}
+
+// RecordToolStripped increments the tool stripped counter for the given tool,
+// policy, agent namespace, and agent pod.
+func RecordToolStripped(tool, policyName, agentNamespace, agentPod string) {
+	toolsStrippedTotal.WithLabelValues(tool, policyName, agentNamespace, agentPod).Inc()
 }

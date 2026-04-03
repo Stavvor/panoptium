@@ -603,6 +603,23 @@ func (s *ExtProcServer) evaluatePerToolPolicy(state *streamState, baseFields map
 
 			if !decision.AuditOnly {
 				bannedTools = append(bannedTools, toolName)
+
+				// Emit ToolStrippedEvent to event bus
+				s.bus.Emit(&eventbus.ToolStrippedEvent{
+					BaseEvent: eventbus.BaseEvent{
+						Type:      eventbus.EventTypeToolStripped,
+						Time:      time.Now(),
+						ReqID:     requestID,
+						AgentInfo: agentIdentity,
+					},
+					ToolName:   toolName,
+					PolicyName: decision.PolicyName,
+					RuleName:   decision.MatchedRule,
+				})
+
+				// Increment Prometheus metric
+				RecordToolStripped(toolName, decision.PolicyName, agentIdentity.Namespace, agentIdentity.PodName)
+
 				if l, ok := logger.(interface {
 					Info(string, ...interface{})
 				}); ok {
