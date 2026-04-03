@@ -46,27 +46,38 @@ show_panoptium_logs() {
 
 kagent_invoke() {
   local prompt="$1"
-  local task_id
-  task_id="demo-$(date +%s)"
+  local agent_id="kagent__NS__demo_k8s_agent"
 
   info "Sending task to Kagent agent..."
   echo -e "  ${BOLD}Prompt:${RESET} $prompt"
   echo ""
 
+  # Create a session if we don't have one yet
+  if [[ -z "${KAGENT_SESSION_ID:-}" ]]; then
+    local sess_resp
+    sess_resp=$(curl -s --max-time 10 \
+      "http://localhost:${KAGENT_PORT}/api/sessions" \
+      -X POST -H "Content-Type: application/json" \
+      -d "$(jq -n --arg ref "$agent_id" '{agent_ref: $ref}')")
+    KAGENT_SESSION_ID=$(echo "$sess_resp" | jq -r '.data.id // empty')
+    if [[ -z "$KAGENT_SESSION_ID" ]]; then
+      err "Failed to create Kagent session: $sess_resp"
+      return 1
+    fi
+    info "Session: $KAGENT_SESSION_ID"
+  fi
+
+  # Send task via A2A message format
   local response
   response=$(curl -s -w "\n%{http_code}" --max-time 120 \
-    "http://localhost:${KAGENT_PORT}/api/invoke" \
-    -H "Content-Type: application/json" \
+    "http://localhost:${KAGENT_PORT}/api/tasks" \
+    -X POST -H "Content-Type: application/json" \
     -d "$(jq -n \
-      --arg agent "demo-k8s-agent" \
-      --arg ns "$KAGENT_NS" \
+      --arg ctx "$KAGENT_SESSION_ID" \
       --arg msg "$prompt" \
-      --arg tid "$task_id" \
       '{
-        agent_name: $agent,
-        namespace: $ns,
-        message: $msg,
-        task_id: $tid
+        contextId: $ctx,
+        message: {role: "user", parts: [{type: "text", text: $msg}]}
       }')")
 
   local http_code
@@ -74,11 +85,42 @@ kagent_invoke() {
   local body
   body=$(echo "$response" | sed '$d')
 
-  echo -e "${BOLD}Kagent response (HTTP ${http_code}):${RESET}"
-  if echo "$body" | jq -r '.result // .response // .message // .' 2>/dev/null; then
-    :
+  local task_id
+  task_id=$(echo "$body" | jq -r '.data.id // empty')
+
+  if [[ -z "$task_id" ]]; then
+    echo -e "${BOLD}Kagent response (HTTP ${http_code}):${RESET}"
+    echo "$body" | jq . 2>/dev/null || echo "$body"
+    return 1
+  fi
+
+  info "Task created: $task_id — waiting for completion..."
+
+  # Poll task status until completed or failed
+  local state=""
+  local result=""
+  for _ in $(seq 1 60); do
+    result=$(curl -s --max-time 10 \
+      "http://localhost:${KAGENT_PORT}/api/tasks/${task_id}")
+    state=$(echo "$result" | jq -r '.data.status.state // empty')
+    case "$state" in
+      completed|failed|canceled)
+        break ;;
+    esac
+    sleep 2
+  done
+
+  echo -e "${BOLD}Task state: ${state:-unknown}${RESET}"
+  # Show the agent's response message
+  local agent_msg
+  agent_msg=$(echo "$result" | jq -r '
+    .data.status.message.parts[]?.text //
+    .data.artifacts[]?.parts[]?.text //
+    empty' 2>/dev/null | head -20)
+  if [[ -n "$agent_msg" ]]; then
+    echo -e "${CYAN}Agent:${RESET} $agent_msg"
   else
-    echo "$body"
+    echo "$result" | jq '.data.status' 2>/dev/null || echo "$result"
   fi
   echo ""
 }
@@ -156,12 +198,26 @@ deploy_demo_resources() {
   info "Applying Panoptium policies..."
   $K apply -f "${DEMO_DIR}/policies/"
 
+  if ! $K get secret openai-api-key -n "$KAGENT_NS" &>/dev/null; then
+    err "Secret 'openai-api-key' not found in namespace '$KAGENT_NS'."
+    err "Create it first:"
+    err ""
+    err "  kubectl create secret generic openai-api-key \\"
+    err "    -n $KAGENT_NS \\"
+    err "    --from-literal=Authorization=\"Bearer \$OPENAI_API_KEY\""
+    err ""
+    exit 1
+  fi
+  info "API key secret found."
+
   info "Applying Kagent Agent + ModelConfig..."
   $K apply -f "${DEMO_DIR}/manifests/kagent-model-config.yaml"
   $K apply -f "${DEMO_DIR}/manifests/kagent-agent.yaml"
 
-  info "Waiting for agent to be ready..."
-  sleep 5
+  info "Waiting for agent pod to be ready..."
+  $K wait pod -n "$KAGENT_NS" -l kagent.dev/agent=demo-k8s-agent \
+    --for=condition=Ready --timeout=120s 2>/dev/null || \
+    warn "Agent pod not ready yet — check: kubectl get pods -n $KAGENT_NS"
 
   echo ""
   info "Panoptium policies:"
