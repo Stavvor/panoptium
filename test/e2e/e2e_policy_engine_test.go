@@ -182,7 +182,7 @@ spec:
 	})
 
 	// -----------------------------------------------------------------------
-	// PE-2: Deny Action Blocks tool_call via ExtProc (HTTP 403)
+	// PE-2: Deny Action Strips Dangerous Tool from Request (HTTP 200)
 	// -----------------------------------------------------------------------
 	Context("PE-2: Deny Action", func() {
 		var curlPod string
@@ -191,7 +191,7 @@ spec:
 			DeferCleanup(func() { deletePersistentCurlPod(curlPod, namespace) })
 		})
 
-		It("should block tool_call with deny rule (HTTP 403) and allow safe tools (HTTP 200)", func() {
+		It("should strip denied tool from request body (HTTP 200) and allow safe tools (HTTP 200)", func() {
 			policyName := uniqueName("pe2-deny")
 			yaml := fmt.Sprintf(`apiVersion: panoptium.io/v1alpha1
 kind: AgentPolicy
@@ -222,12 +222,14 @@ spec:
 			DeferCleanup(func() { deleteAgentPolicy(policyName, namespace) })
 			waitForPolicyReady(policyName, namespace, 2*time.Minute)
 
-			By("sending tool_call for dangerous_exec and expecting HTTP 403")
-			statusCode, body, err := execToolCallRequest(curlPod, gwIP, "pe2-agent", "dangerous_exec", nil)
+			By("sending multi-tool request with dangerous_exec + safe_read and expecting HTTP 200 with tool stripped")
+			statusCode, body, err := execMultiToolRequest(curlPod, gwIP, []string{"dangerous_exec", "safe_read"}, nil)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(statusCode).To(Equal(403), "Dangerous tool_call should be denied with 403")
-			Expect(assertStructuredError(body, "policy_violation", "")).To(Succeed(),
-				"Response should be a structured policy_violation error")
+			Expect(statusCode).To(Equal(200),
+				"Tool deny is mutating (strips tool), request should pass through with 200")
+			Expect(body).NotTo(BeEmpty(), "Response body should not be empty")
+			Expect(body).NotTo(ContainSubstring("dangerous_exec"),
+				"Dangerous tool should be stripped from the request before reaching the LLM")
 
 			By("sending tool_call for safe_read and expecting HTTP 200")
 			statusCode, _, err = execToolCallRequest(curlPod, gwIP, "pe2-agent", "safe_read", nil)
