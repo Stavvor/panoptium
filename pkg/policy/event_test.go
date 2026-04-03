@@ -152,6 +152,121 @@ func TestGetIntField_NilFieldsMap(t *testing.T) {
 
 // --- DefaultAllowDecision Tests ---
 
+// --- EvaluationResult Tests ---
+
+func TestEvaluationResult_ActionClassification(t *testing.T) {
+	result := &EvaluationResult{
+		Decisions: []*Decision{
+			{Action: CompiledAction{Type: "alert"}, Matched: true, MatchedRule: "alert-rule"},
+			{Action: CompiledAction{Type: "deny"}, Matched: true, MatchedRule: "deny-tool", PolicyName: "tool-deny"},
+			{Action: CompiledAction{Type: "rateLimit"}, Matched: true, MatchedRule: "rate-rule"},
+			{Action: CompiledAction{Type: "quarantine"}, Matched: true, MatchedRule: "quarantine-rule"},
+		},
+	}
+
+	nonTerminal := result.NonTerminalDecisions()
+	if len(nonTerminal) != 1 {
+		t.Fatalf("NonTerminalDecisions() returned %d decisions, want 1", len(nonTerminal))
+	}
+	if nonTerminal[0].Action.Type != "alert" {
+		t.Errorf("NonTerminalDecisions()[0].Action.Type = %q, want %q", nonTerminal[0].Action.Type, "alert")
+	}
+
+	terminal := result.TerminalDecisions()
+	if len(terminal) != 2 {
+		t.Fatalf("TerminalDecisions() returned %d decisions, want 2", len(terminal))
+	}
+
+	rateControl := result.RateControlDecisions()
+	if len(rateControl) != 1 {
+		t.Fatalf("RateControlDecisions() returned %d decisions, want 1", len(rateControl))
+	}
+	if rateControl[0].Action.Type != "rateLimit" {
+		t.Errorf("RateControlDecisions()[0].Action.Type = %q, want %q", rateControl[0].Action.Type, "rateLimit")
+	}
+}
+
+func TestEvaluationResult_Empty(t *testing.T) {
+	result := &EvaluationResult{
+		DefaultAllow: true,
+	}
+	effective := result.EffectiveAction()
+	if effective.Type != "allow" {
+		t.Errorf("EffectiveAction().Type = %q, want %q", effective.Type, "allow")
+	}
+}
+
+func TestEvaluationResult_DenyFirst(t *testing.T) {
+	result := &EvaluationResult{
+		Decisions: []*Decision{
+			{Action: CompiledAction{Type: "allow"}, Matched: true, MatchedRule: "allow-rule"},
+			{Action: CompiledAction{Type: "deny"}, Matched: true, MatchedRule: "deny-rule"},
+		},
+	}
+	effective := result.EffectiveAction()
+	if effective.Type != "deny" {
+		t.Errorf("EffectiveAction().Type = %q, want %q (deny-first semantics)", effective.Type, "deny")
+	}
+}
+
+func TestEvaluationResult_CollectsAll(t *testing.T) {
+	d1 := &Decision{Action: CompiledAction{Type: "alert"}, Matched: true, PolicyName: "pol-1"}
+	d2 := &Decision{Action: CompiledAction{Type: "deny"}, Matched: true, PolicyName: "pol-2"}
+	d3 := &Decision{Action: CompiledAction{Type: "allow"}, Matched: true, PolicyName: "pol-3"}
+	result := &EvaluationResult{
+		Decisions: []*Decision{d1, d2, d3},
+	}
+	if len(result.Decisions) != 3 {
+		t.Fatalf("Decisions has %d entries, want 3", len(result.Decisions))
+	}
+	if result.Decisions[0].PolicyName != "pol-1" {
+		t.Errorf("Decisions[0].PolicyName = %q, want %q", result.Decisions[0].PolicyName, "pol-1")
+	}
+	if result.Decisions[1].PolicyName != "pol-2" {
+		t.Errorf("Decisions[1].PolicyName = %q, want %q", result.Decisions[1].PolicyName, "pol-2")
+	}
+	if result.Decisions[2].PolicyName != "pol-3" {
+		t.Errorf("Decisions[2].PolicyName = %q, want %q", result.Decisions[2].PolicyName, "pol-3")
+	}
+}
+
+func TestEvaluationResult_HasDeny(t *testing.T) {
+	result := &EvaluationResult{
+		Decisions: []*Decision{
+			{Action: CompiledAction{Type: "allow"}, Matched: true},
+		},
+	}
+	if result.HasDeny() {
+		t.Error("HasDeny() = true, want false (no deny decisions)")
+	}
+
+	result.Decisions = append(result.Decisions, &Decision{
+		Action: CompiledAction{Type: "deny"}, Matched: true,
+	})
+	if !result.HasDeny() {
+		t.Error("HasDeny() = false, want true (has deny decision)")
+	}
+}
+
+func TestEvaluationResult_MutatingDecisions(t *testing.T) {
+	result := &EvaluationResult{
+		Decisions: []*Decision{
+			{Action: CompiledAction{Type: "deny"}, Matched: true, MatchedRule: "deny-tool", Subcategory: "tool_call"},
+			{Action: CompiledAction{Type: "deny"}, Matched: true, MatchedRule: "deny-request", Subcategory: "llm_request"},
+			{Action: CompiledAction{Type: "alert"}, Matched: true, MatchedRule: "alert-rule", Subcategory: "tool_call"},
+		},
+	}
+	mutating := result.MutatingDecisions()
+	if len(mutating) != 1 {
+		t.Fatalf("MutatingDecisions() returned %d decisions, want 1 (only deny on tool_call)", len(mutating))
+	}
+	if mutating[0].MatchedRule != "deny-tool" {
+		t.Errorf("MutatingDecisions()[0].MatchedRule = %q, want %q", mutating[0].MatchedRule, "deny-tool")
+	}
+}
+
+// --- DefaultAllowDecision Tests ---
+
 func TestDefaultAllowDecision_ReturnsAllowAction(t *testing.T) {
 	d := DefaultAllowDecision()
 	if d.Action.Type != "allow" {

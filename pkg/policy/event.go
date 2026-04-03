@@ -19,6 +19,8 @@ package policy
 import (
 	"fmt"
 	"time"
+
+	v1alpha1 "github.com/panoptium/panoptium/api/v1alpha1"
 )
 
 // PolicyEvent represents a runtime event to be evaluated against compiled policies.
@@ -86,6 +88,151 @@ func (e *PolicyEvent) GetIntField(path string) int {
 	}
 }
 
+// ActionCategory classifies an action type for multi-phase evaluation.
+type ActionCategory int
+
+const (
+	// ActionCategoryNonTerminal represents actions that are always executed
+	// without blocking (alert, audit).
+	ActionCategoryNonTerminal ActionCategory = iota
+
+	// ActionCategoryMutating represents tool-strip actions (deny on tool_call).
+	ActionCategoryMutating
+
+	// ActionCategoryRateControl represents rate limit actions.
+	ActionCategoryRateControl
+
+	// ActionCategoryTerminal represents blocking actions (deny, quarantine on
+	// non-tool-call events).
+	ActionCategoryTerminal
+)
+
+// ClassifyAction returns the ActionCategory for the given action type and
+// event subcategory. Deny on tool_call is mutating (strips the tool); deny
+// on other subcategories is terminal (blocks the request).
+func ClassifyAction(actionType v1alpha1.ActionType, subcategory string) ActionCategory {
+	switch actionType {
+	case v1alpha1.ActionTypeAlert:
+		return ActionCategoryNonTerminal
+	case v1alpha1.ActionTypeRateLimit:
+		return ActionCategoryRateControl
+	case v1alpha1.ActionTypeDeny:
+		if subcategory == "tool_call" {
+			return ActionCategoryMutating
+		}
+		return ActionCategoryTerminal
+	case v1alpha1.ActionTypeQuarantine:
+		return ActionCategoryTerminal
+	case v1alpha1.ActionTypeAllow:
+		return ActionCategoryNonTerminal
+	default:
+		return ActionCategoryNonTerminal
+	}
+}
+
+// EvaluationResult collects decisions from ALL matching policies across ALL
+// priority tiers. It replaces the single-winner Decision output for
+// multi-phase evaluation with deny-first semantics.
+type EvaluationResult struct {
+	// Decisions contains all matched decisions across all policies.
+	Decisions []*Decision
+
+	// DefaultAllow is true when no rule matched (implicit allow).
+	DefaultAllow bool
+
+	// EvaluationDuration is how long the full evaluation took.
+	EvaluationDuration time.Duration
+
+	// PredicateTrace records the evaluation result of each predicate.
+	PredicateTrace []PredicateTraceEntry
+}
+
+// EffectiveAction returns the winning action after deny-first composition.
+// Terminal deny/quarantine always wins over allow at equal priority.
+// If no decisions exist, returns a default allow action.
+func (r *EvaluationResult) EffectiveAction() CompiledAction {
+	if len(r.Decisions) == 0 || r.DefaultAllow {
+		return CompiledAction{Type: "allow"}
+	}
+
+	// Deny-first: if any terminal deny/quarantine exists, it wins.
+	for _, d := range r.Decisions {
+		if d.Action.Type == "deny" || d.Action.Type == "quarantine" {
+			cat := ClassifyAction(d.Action.Type, d.Subcategory)
+			if cat == ActionCategoryTerminal {
+				return d.Action
+			}
+		}
+	}
+
+	// Check for rate limit
+	for _, d := range r.Decisions {
+		if d.Action.Type == "rateLimit" {
+			return d.Action
+		}
+	}
+
+	// No terminal or rate control -- return allow
+	return CompiledAction{Type: "allow"}
+}
+
+// TerminalDecisions returns all decisions classified as terminal (deny on
+// non-tool-call, quarantine).
+func (r *EvaluationResult) TerminalDecisions() []*Decision {
+	var result []*Decision
+	for _, d := range r.Decisions {
+		if ClassifyAction(d.Action.Type, d.Subcategory) == ActionCategoryTerminal {
+			result = append(result, d)
+		}
+	}
+	return result
+}
+
+// NonTerminalDecisions returns all decisions classified as non-terminal
+// (alert, audit, allow).
+func (r *EvaluationResult) NonTerminalDecisions() []*Decision {
+	var result []*Decision
+	for _, d := range r.Decisions {
+		if ClassifyAction(d.Action.Type, d.Subcategory) == ActionCategoryNonTerminal {
+			result = append(result, d)
+		}
+	}
+	return result
+}
+
+// MutatingDecisions returns all decisions classified as mutating (deny on
+// tool_call -- tools to strip).
+func (r *EvaluationResult) MutatingDecisions() []*Decision {
+	var result []*Decision
+	for _, d := range r.Decisions {
+		if ClassifyAction(d.Action.Type, d.Subcategory) == ActionCategoryMutating {
+			result = append(result, d)
+		}
+	}
+	return result
+}
+
+// RateControlDecisions returns all decisions classified as rate control.
+func (r *EvaluationResult) RateControlDecisions() []*Decision {
+	var result []*Decision
+	for _, d := range r.Decisions {
+		if ClassifyAction(d.Action.Type, d.Subcategory) == ActionCategoryRateControl {
+			result = append(result, d)
+		}
+	}
+	return result
+}
+
+// HasDeny returns true if any decision has a deny or quarantine terminal action.
+func (r *EvaluationResult) HasDeny() bool {
+	for _, d := range r.Decisions {
+		if d.Action.Type == "deny" || d.Action.Type == "quarantine" {
+			return true
+		}
+	}
+	return false
+}
+
 // Decision represents the outcome of evaluating a PolicyEvent against compiled policies.
 type Decision struct {
 	// Action is the action type to take.
@@ -93,6 +240,13 @@ type Decision struct {
 
 	// Matched indicates whether any rule matched the event.
 	Matched bool
+
+	// Subcategory is the event subcategory that produced this decision
+	// (e.g., "tool_call", "llm_request"). Used for action classification.
+	Subcategory string
+
+	// Severity is the severity level from the matched rule.
+	Severity string
 
 	// AuditOnly indicates that the decision came from a policy with
 	// enforcementMode=audit. The action should be logged/emitted but not

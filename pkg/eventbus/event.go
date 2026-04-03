@@ -265,9 +265,32 @@ type EnforcementEvent struct {
 	// (e.g., "quarantine").
 	EscalationAction string
 
+	// Severity is the severity level from the matched rule (e.g., "INFO",
+	// "LOW", "MEDIUM", "HIGH", "CRITICAL").
+	Severity string
+
 	// PolicyName is the name of the policy that produced this decision.
 	PolicyName string
 
 	// PolicyNamespace is the namespace of the policy that produced this decision.
 	PolicyNamespace string
+}
+
+// SeverityScore maps a severity string to its risk point value for
+// severity-based escalation. Unknown or empty severity returns 0.
+func SeverityScore(severity string) int {
+	switch severity {
+	case "INFO":
+		return 0
+	case "LOW":
+		return 5
+	case "MEDIUM":
+		return 20
+	case "HIGH":
+		return 50
+	case "CRITICAL":
+		return 100
+	default:
+		return 0
+	}
 }

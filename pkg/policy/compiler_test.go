@@ -1062,6 +1062,73 @@ func TestCompilationError_UnwrapNilCause(t *testing.T) {
 	}
 }
 
+// --- GroupBy Parameter Tests ---
+
+func TestCompileRateLimit_GroupByParameter(t *testing.T) {
+	for _, groupBy := range []string{"agent", "tool", "agent+tool"} {
+		t.Run("groupBy="+groupBy, func(t *testing.T) {
+			pol := newTestPolicy("rate-policy", "default", 100, []v1alpha1.PolicyRule{
+				{
+					Name: "rate-rule",
+					Trigger: v1alpha1.Trigger{
+						EventCategory:    "protocol",
+						EventSubcategory: "tool_call",
+					},
+					Action: v1alpha1.Action{
+						Type: v1alpha1.ActionTypeRateLimit,
+						Parameters: map[string]string{
+							"requestsPerMinute": "50",
+							"burstSize":         "10",
+							"groupBy":           groupBy,
+						},
+					},
+					Severity: v1alpha1.SeverityMedium,
+				},
+			})
+
+			compiler := NewPolicyCompiler()
+			compiled, err := compiler.Compile(pol)
+			if err != nil {
+				t.Fatalf("Compile() error: %v", err)
+			}
+
+			if compiled.Rules[0].Action.Parameters["groupBy"] != groupBy {
+				t.Errorf("compiled groupBy = %q, want %q", compiled.Rules[0].Action.Parameters["groupBy"], groupBy)
+			}
+		})
+	}
+}
+
+func TestCompileRateLimit_DefaultGroupBy(t *testing.T) {
+	pol := newTestPolicy("rate-policy", "default", 100, []v1alpha1.PolicyRule{
+		{
+			Name: "rate-rule",
+			Trigger: v1alpha1.Trigger{
+				EventCategory:    "protocol",
+				EventSubcategory: "tool_call",
+			},
+			Action: v1alpha1.Action{
+				Type: v1alpha1.ActionTypeRateLimit,
+				Parameters: map[string]string{
+					"requestsPerMinute": "50",
+				},
+			},
+			Severity: v1alpha1.SeverityMedium,
+		},
+	})
+
+	compiler := NewPolicyCompiler()
+	compiled, err := compiler.Compile(pol)
+	if err != nil {
+		t.Fatalf("Compile() error: %v", err)
+	}
+
+	// groupBy absent is fine -- default applied at evaluation time
+	if _, ok := compiled.Rules[0].Action.Parameters["groupBy"]; ok {
+		t.Errorf("expected groupBy to be absent when not specified, got %q", compiled.Rules[0].Action.Parameters["groupBy"])
+	}
+}
+
 // asCompilationError is a helper that checks if err is a *CompilationError.
 func asCompilationError(err error, target **CompilationError) bool {
 	if err == nil {

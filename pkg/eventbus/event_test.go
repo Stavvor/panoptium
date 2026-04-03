@@ -246,6 +246,43 @@ func TestLLMRequestCompleteEvent(t *testing.T) {
 	}
 }
 
+// --- EnforcementEvent Severity Tests ---
+
+func TestEnforcementEvent_SeverityField(t *testing.T) {
+	e := &EnforcementEvent{
+		BaseEvent: BaseEvent{
+			Type: EventTypePolicyDecision,
+			Time: time.Now(),
+		},
+		Action:   "deny",
+		Severity: "HIGH",
+	}
+	if e.Severity != "HIGH" {
+		t.Errorf("EnforcementEvent.Severity = %q, want %q", e.Severity, "HIGH")
+	}
+}
+
+func TestSeverityScore(t *testing.T) {
+	tests := []struct {
+		severity string
+		want     int
+	}{
+		{"INFO", 0},
+		{"LOW", 5},
+		{"MEDIUM", 20},
+		{"HIGH", 50},
+		{"CRITICAL", 100},
+		{"", 0},
+		{"unknown", 0},
+	}
+	for _, tc := range tests {
+		got := SeverityScore(tc.severity)
+		if got != tc.want {
+			t.Errorf("SeverityScore(%q) = %d, want %d", tc.severity, got, tc.want)
+		}
+	}
+}
+
 // TestEventTypeConstants verifies the event type string constants are distinct.
 func TestEventTypeConstants(t *testing.T) {
 	types := []string{

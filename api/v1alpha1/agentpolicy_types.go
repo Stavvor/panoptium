@@ -106,7 +106,11 @@ type Action struct {
 	Type ActionType `json:"type"`
 
 	// Parameters contains action-specific configuration as key-value pairs.
-	// For rateLimit: "requestsPerMinute", "burstSize"
+	// For rateLimit: "requestsPerMinute", "burstSize", "groupBy"
+	// groupBy controls the rate limit counter key scope:
+	//   "agent" (default) - counter keyed by agent identity
+	//   "tool" - counter keyed by tool name
+	//   "agent+tool" - counter keyed by agent + tool combination
 	// +optional
 	Parameters map[string]string `json:"parameters,omitempty"`
 }
