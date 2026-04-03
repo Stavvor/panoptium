@@ -1,0 +1,30 @@
+# Cluster-wide baseline: rate-limit all agents across all namespaces.
+# Namespace-scoped AgentPolicy can override this with higher priority.
+apiVersion: panoptium.io/v1alpha1
+kind: AgentClusterPolicy
+metadata:
+  name: cluster-baseline
+spec:
+  enforcementMode: enforcing
+  priority: 10
+  rules:
+    - name: global-rate-limit
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: llm_request
+      action:
+        type: rateLimit
+        parameters:
+          requestsPerMinute: "120"
+          burstSize: "20"
+          retryAfter: "5"
+      severity: LOW
+    - name: global-deny-shell
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      predicates:
+        - cel: "event.toolName == 'shell_exec'"
+      action:
+        type: deny
+      severity: HIGH

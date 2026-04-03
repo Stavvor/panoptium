@@ -1,0 +1,22 @@
+# Throttle LLM API calls to 30/min per agent.
+# Prevents runaway loops and cost explosions.
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: rate-limit-llm
+  namespace: default
+spec:
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: throttle-completions
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: llm_request
+      action:
+        type: rateLimit
+        parameters:
+          requestsPerMinute: "30"
+          burstSize: "5"
+          retryAfter: "10"
+      severity: MEDIUM

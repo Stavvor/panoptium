@@ -1,0 +1,26 @@
+# Explicitly allow a specific tool that a broader deny policy would block.
+# Higher priority (200) overrides a lower-priority deny (100).
+#
+# Use case: you deny all tool_calls by default (priority 100),
+# but this agent needs file_read to function.
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: allow-file-read
+  namespace: default
+spec:
+  targetSelector:
+    matchLabels:
+      app: my-agent
+  enforcementMode: enforcing
+  priority: 200
+  rules:
+    - name: permit-file-read
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      predicates:
+        - cel: "event.toolName == 'file_read'"
+      action:
+        type: allow
+      severity: LOW

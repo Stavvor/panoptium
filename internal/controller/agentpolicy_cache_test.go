@@ -127,11 +127,15 @@ var _ = Describe("AgentPolicy Controller PolicyCache Integration", func() {
 				return false
 			}, timeout, interval).Should(BeTrue())
 
-			// Update the policy
-			updated := &panoptiumiov1alpha1.AgentPolicy{}
-			Expect(k8sClient.Get(ctx, lookupKey, updated)).Should(Succeed())
-			updated.Spec.Priority = 200
-			Expect(k8sClient.Update(ctx, updated)).Should(Succeed())
+			// Update the policy (retry on conflict since reconciler may update status concurrently)
+			Eventually(func() error {
+				updated := &panoptiumiov1alpha1.AgentPolicy{}
+				if err := k8sClient.Get(ctx, lookupKey, updated); err != nil {
+					return err
+				}
+				updated.Spec.Priority = 200
+				return k8sClient.Update(ctx, updated)
+			}, timeout, interval).Should(Succeed())
 
 			// Wait for cache to reflect the update
 			Eventually(func() int32 {

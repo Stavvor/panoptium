@@ -1,0 +1,30 @@
+# After 3 denied requests within 60 seconds, quarantine the agent pod.
+# Creates an AgentQuarantine resource which triggers:
+#   - deny-all NetworkPolicy
+#   - eBPF-LSM syscall restrictions
+#   - optional pod eviction
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: escalate-repeated-violations
+  namespace: default
+spec:
+  targetSelector:
+    matchLabels:
+      app: my-agent
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: deny-and-escalate
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      predicates:
+        - cel: "event.toolName == 'dangerous_tool'"
+      action:
+        type: deny
+        parameters:
+          escalationThreshold: "3"
+          escalationWindow: "60"
+          escalationAction: "quarantine"
+      severity: CRITICAL

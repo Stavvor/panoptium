@@ -1,0 +1,32 @@
+# Block agents from writing to sensitive paths.
+# Uses CEL startsWith() to match path prefixes.
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: block-sensitive-writes
+  namespace: default
+spec:
+  targetSelector:
+    matchLabels:
+      app: my-agent
+  enforcementMode: enforcing
+  priority: 100
+  rules:
+    - name: no-etc-writes
+      trigger:
+        eventCategory: kernel
+        eventSubcategory: file_write
+      predicates:
+        - cel: "event.path.startsWith('/etc/')"
+      action:
+        type: deny
+      severity: CRITICAL
+    - name: no-shadow-reads
+      trigger:
+        eventCategory: kernel
+        eventSubcategory: file_open
+      predicates:
+        - cel: "event.path == '/etc/shadow'"
+      action:
+        type: deny
+      severity: CRITICAL

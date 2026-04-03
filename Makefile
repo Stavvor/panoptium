@@ -68,17 +68,19 @@ test: manifests generate fmt vet envtest ## Run tests.
 # Prometheus and CertManager are installed by default; skip with:
 # - PROMETHEUS_INSTALL_SKIP=true
 # - CERT_MANAGER_INSTALL_SKIP=true
+KIND_CLUSTER ?= panoptium-e2e
+
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
 	@command -v kind >/dev/null 2>&1 || { \
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
-	@kind get clusters | grep -q 'kind' || { \
+	@kind get clusters 2>/dev/null | grep -q . || { \
 		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
 		exit 1; \
 	}
-	go test ./test/e2e/ -v -ginkgo.v
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v
 
 .PHONY: test-e2e-full
 test-e2e-full: ## Run the full E2E pipeline on a kind cluster (creates cluster, deploys all, runs tests).
@@ -90,23 +92,33 @@ test-e2e-full: ## Run the full E2E pipeline on a kind cluster (creates cluster, 
 		echo "Helm is not installed. Please install Helm manually."; \
 		exit 1; \
 	}
-	./test/e2e/run-e2e.sh
+	KIND_CLUSTER=$(KIND_CLUSTER) ./test/e2e/run-e2e.sh
 
 .PHONY: test-e2e-crd
 test-e2e-crd: ## Run CRD lifecycle E2E tests on existing Kind cluster.
 	@command -v kind >/dev/null 2>&1 || { echo "Kind is not installed."; exit 1; }
-	go test ./test/e2e/ -v -ginkgo.v -timeout 300s -ginkgo.label-filter="e2e-crd"
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 300s -ginkgo.label-filter="e2e-crd"
 
 .PHONY: test-e2e-helm
 test-e2e-helm: ## Run Helm deployment + webhook E2E tests on existing Kind cluster.
 	@command -v kind >/dev/null 2>&1 || { echo "Kind is not installed."; exit 1; }
 	@command -v helm >/dev/null 2>&1 || { echo "Helm is not installed."; exit 1; }
-	go test ./test/e2e/ -v -ginkgo.v -timeout 300s -ginkgo.label-filter="e2e-helm"
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 300s -ginkgo.label-filter="e2e-helm"
+
+.PHONY: test-e2e-enforcement
+test-e2e-enforcement: ## Run Gateway Enforcement E2E tests on existing Kind cluster.
+	@command -v kind >/dev/null 2>&1 || { echo "Kind is not installed."; exit 1; }
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 300s -ginkgo.label-filter="e2e-enforcement"
+
+.PHONY: test-e2e-threat-sig
+test-e2e-threat-sig: ## Run ThreatSignature CRD E2E tests on existing Kind cluster.
+	@command -v kind >/dev/null 2>&1 || { echo "Kind is not installed."; exit 1; }
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 300s -ginkgo.label-filter="e2e-threat-sig"
 
 .PHONY: test-e2e-all
-test-e2e-all: ## Run all E2E test suites (extproc + crd + helm).
+test-e2e-all: ## Run all E2E test suites (extproc + crd + helm + threat-sig).
 	@command -v kind >/dev/null 2>&1 || { echo "Kind is not installed."; exit 1; }
-	go test ./test/e2e/ -v -ginkgo.v -timeout 900s
+	KIND_CLUSTER=$(KIND_CLUSTER) go test ./test/e2e/ -v -ginkgo.v -timeout 900s
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter

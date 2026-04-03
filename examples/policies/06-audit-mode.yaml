@@ -1,0 +1,22 @@
+# Monitor all tool calls without blocking anything.
+# Use this to understand agent behavior before writing enforcing policies.
+# Policy decisions are logged and published to NATS, but traffic is never blocked.
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: audit-all-tools
+  namespace: default
+spec:
+  targetSelector:
+    matchLabels:
+      app: my-agent
+  enforcementMode: audit
+  priority: 50
+  rules:
+    - name: log-all-tool-calls
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      action:
+        type: deny
+      severity: INFO

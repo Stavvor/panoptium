@@ -1,0 +1,31 @@
+# Block requests that match known threat signatures.
+# ThreatSignature CRDs ship with the Helm chart (prompt injection, tool poisoning, etc).
+# This policy activates enforcement against any HIGH or CRITICAL signature match.
+apiVersion: panoptium.io/v1alpha1
+kind: AgentPolicy
+metadata:
+  name: block-known-threats
+  namespace: default
+spec:
+  targetSelector:
+    matchLabels:
+      app: my-agent
+  enforcementMode: enforcing
+  priority: 300
+  rules:
+    - name: enforce-threat-signatures
+      trigger:
+        eventCategory: protocol
+        eventSubcategory: tool_call
+      threatSignatures:
+        severities:
+          - HIGH
+          - CRITICAL
+      action:
+        type: deny
+        parameters:
+          message: "request matched a known threat signature"
+          escalationThreshold: "2"
+          escalationWindow: "120"
+          escalationAction: "quarantine"
+      severity: CRITICAL

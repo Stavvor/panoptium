@@ -1,0 +1,279 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="eyeGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#0A1628" stop-opacity="0.9"/>
+    </linearGradient>
+    <linearGradient id="irisGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D4FF"/>
+      <stop offset="50%" stop-color="#0080AA"/>
+      <stop offset="100%" stop-color="#00D4FF"/>
+    </linearGradient>
+    <linearGradient id="amberGlow" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFB800"/>
+      <stop offset="100%" stop-color="#FF8C00"/>
+    </linearGradient>
+    <radialGradient id="pupilGradient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0A1628"/>
+      <stop offset="70%" stop-color="#0A1628"/>
+      <stop offset="100%" stop-color="#001030"/>
+    </radialGradient>
+    <radialGradient id="irisRadial" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.1"/>
+      <stop offset="40%" stop-color="#00D4FF" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#00D4FF" stop-opacity="0.8"/>
+    </radialGradient>
+
+    <!-- Clipping paths -->
+    <clipPath id="eyeClip">
+      <path d="M256 160 Q340 160 400 256 Q340 352 256 352 Q172 352 112 256 Q172 160 256 160 Z"/>
+    </clipPath>
+    <clipPath id="outerEyeClip">
+      <path d="M256 130 Q355 130 425 256 Q355 382 256 382 Q157 382 87 256 Q157 130 256 130 Z"/>
+    </clipPath>
+
+    <!-- Glow filter for the cyan elements -->
+    <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="outerGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur"/>
+      <feFlood flood-color="#00D4FF" flood-opacity="0.4" result="color"/>
+      <feComposite in="color" in2="blur" operator="in" result="shadow"/>
+      <feComposite in="SourceGraphic" in2="shadow" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- ============================================ -->
+  <!-- LAYER 1: Outermost concentric ring (kernel)  -->
+  <!-- ============================================ -->
+
+  <!-- Outer surveillance ring - dashed geometric circle -->
+  <circle cx="256" cy="256" r="240" fill="none" stroke="#0A1628" stroke-width="1.5" stroke-opacity="0.4" stroke-dasharray="8 12"/>
+
+  <!-- Outer octagonal ring -->
+  <polygon points="256,26 418,100 486,262 418,424 256,498 94,424 26,262 94,100"
+           fill="none" stroke="#0A1628" stroke-width="2" stroke-opacity="0.5"/>
+
+  <!-- Tick marks at cardinal and ordinal points on outer ring -->
+  <g stroke="#00D4FF" stroke-width="1.5" stroke-opacity="0.5">
+    <!-- N --> <line x1="256" y1="30" x2="256" y2="50"/>
+    <!-- S --> <line x1="256" y1="462" x2="256" y2="482"/>
+    <!-- E --> <line x1="462" y1="256" x2="482" y2="256"/>
+    <!-- W --> <line x1="30" y1="256" x2="50" y2="256"/>
+    <!-- NE --> <line x1="401" y1="111" x2="415" y2="97"/>
+    <!-- SE --> <line x1="401" y1="401" x2="415" y2="415"/>
+    <!-- SW --> <line x1="111" y1="401" x2="97" y2="415"/>
+    <!-- NW --> <line x1="111" y1="111" x2="97" y2="97"/>
+  </g>
+
+  <!-- ============================================= -->
+  <!-- LAYER 2: Middle concentric ring (network)     -->
+  <!-- ============================================= -->
+
+  <!-- Middle geometric ring -->
+  <circle cx="256" cy="256" r="195" fill="none" stroke="#0A1628" stroke-width="2.5" stroke-opacity="0.6"/>
+
+  <!-- Subtle segment lines connecting rings -->
+  <g stroke="#00D4FF" stroke-width="0.8" stroke-opacity="0.25">
+    <line x1="256" y1="61" x2="256" y2="130"/>
+    <line x1="256" y1="382" x2="256" y2="451"/>
+    <line x1="61" y1="256" x2="87" y2="256"/>
+    <line x1="425" y1="256" x2="451" y2="256"/>
+  </g>
+
+  <!-- Corner bracket details at diagonal positions -->
+  <g stroke="#00D4FF" stroke-width="1.2" stroke-opacity="0.35" fill="none">
+    <!-- Top-left bracket -->
+    <polyline points="120,88 100,88 100,108"/>
+    <!-- Top-right bracket -->
+    <polyline points="392,88 412,88 412,108"/>
+    <!-- Bottom-right bracket -->
+    <polyline points="412,404 412,424 392,424"/>
+    <!-- Bottom-left bracket -->
+    <polyline points="100,404 100,424 120,424"/>
+  </g>
+
+  <!-- ============================================= -->
+  <!-- LAYER 3: Inner ring (protocol layer)          -->
+  <!-- ============================================= -->
+
+  <!-- Inner geometric ring -->
+  <circle cx="256" cy="256" r="148" fill="none" stroke="#0A1628" stroke-width="2" stroke-opacity="0.5"/>
+
+  <!-- Small node dots on inner ring -->
+  <g fill="#00D4FF" fill-opacity="0.6">
+    <circle cx="256" cy="108" r="3"/>
+    <circle cx="256" cy="404" r="3"/>
+    <circle cx="108" cy="256" r="3"/>
+    <circle cx="404" cy="256" r="3"/>
+    <circle cx="152" cy="152" r="2.5"/>
+    <circle cx="360" cy="152" r="2.5"/>
+    <circle cx="360" cy="360" r="2.5"/>
+    <circle cx="152" cy="360" r="2.5"/>
+  </g>
+
+  <!-- ============================================= -->
+  <!-- LAYER 4: The Eye — outer lid shape            -->
+  <!-- ============================================= -->
+
+  <!-- Outer eye shape with navy fill -->
+  <path d="M256 130 Q355 130 425 256 Q355 382 256 382 Q157 382 87 256 Q157 130 256 130 Z"
+        fill="#0A1628" stroke="#00D4FF" stroke-width="2.5" filter="url(#outerGlow)"/>
+
+  <!-- Inner eye shape (slightly smaller) -->
+  <path d="M256 160 Q340 160 400 256 Q340 352 256 352 Q172 352 112 256 Q172 160 256 160 Z"
+        fill="#0D1E35" stroke="#00D4FF" stroke-width="1.5" stroke-opacity="0.6"/>
+
+  <!-- ============================================= -->
+  <!-- LAYER 5: The Iris — hexagonal circuit pattern -->
+  <!-- ============================================= -->
+
+  <!-- Iris outer ring -->
+  <circle cx="256" cy="256" r="72" fill="url(#irisRadial)" stroke="#00D4FF" stroke-width="2"/>
+
+  <!-- Hexagonal iris pattern ring 1 (outer) -->
+  <polygon points="256,190 313,223 313,289 256,322 199,289 199,223"
+           fill="none" stroke="#00D4FF" stroke-width="1.2" stroke-opacity="0.5"/>
+
+  <!-- Hexagonal iris pattern ring 2 (middle) -->
+  <polygon points="256,204 301,232 301,280 256,308 211,280 211,232"
+           fill="none" stroke="#00D4FF" stroke-width="1" stroke-opacity="0.4"/>
+
+  <!-- Circuit trace lines radiating from hexagon vertices -->
+  <g stroke="#00D4FF" stroke-width="0.8" stroke-opacity="0.4" clip-path="url(#eyeClip)">
+    <!-- Top vertex traces -->
+    <line x1="256" y1="190" x2="256" y2="165"/>
+    <line x1="256" y1="190" x2="240" y2="175"/>
+    <line x1="256" y1="190" x2="272" y2="175"/>
+
+    <!-- Top-right vertex traces -->
+    <line x1="313" y1="223" x2="335" y2="212"/>
+    <line x1="313" y1="223" x2="330" y2="230"/>
+
+    <!-- Bottom-right vertex traces -->
+    <line x1="313" y1="289" x2="335" y2="300"/>
+    <line x1="313" y1="289" x2="330" y2="282"/>
+
+    <!-- Bottom vertex traces -->
+    <line x1="256" y1="322" x2="256" y2="347"/>
+    <line x1="256" y1="322" x2="240" y2="337"/>
+    <line x1="256" y1="322" x2="272" y2="337"/>
+
+    <!-- Bottom-left vertex traces -->
+    <line x1="199" y1="289" x2="177" y2="300"/>
+    <line x1="199" y1="289" x2="182" y2="282"/>
+
+    <!-- Top-left vertex traces -->
+    <line x1="199" y1="223" x2="177" y2="212"/>
+    <line x1="199" y1="223" x2="182" y2="230"/>
+  </g>
+
+  <!-- Circuit node dots on hexagon vertices -->
+  <g fill="#00D4FF" fill-opacity="0.7" clip-path="url(#eyeClip)">
+    <rect x="254" y="188" width="4" height="4" rx="0.5"/>
+    <rect x="311" y="221" width="4" height="4" rx="0.5"/>
+    <rect x="311" y="287" width="4" height="4" rx="0.5"/>
+    <rect x="254" y="320" width="4" height="4" rx="0.5"/>
+    <rect x="197" y="287" width="4" height="4" rx="0.5"/>
+    <rect x="197" y="221" width="4" height="4" rx="0.5"/>
+  </g>
+
+  <!-- Inner circuit traces (smaller details) -->
+  <g stroke="#00D4FF" stroke-width="0.6" stroke-opacity="0.3" clip-path="url(#eyeClip)">
+    <!-- Horizontal micro-traces -->
+    <line x1="218" y1="240" x2="230" y2="240"/>
+    <line x1="282" y1="240" x2="294" y2="240"/>
+    <line x1="218" y1="272" x2="230" y2="272"/>
+    <line x1="282" y1="272" x2="294" y2="272"/>
+    <!-- Vertical micro-traces -->
+    <line x1="240" y1="218" x2="240" y2="230"/>
+    <line x1="272" y1="218" x2="272" y2="230"/>
+    <line x1="240" y1="282" x2="240" y2="294"/>
+    <line x1="272" y1="282" x2="272" y2="294"/>
+  </g>
+
+  <!-- ============================================= -->
+  <!-- LAYER 6: The Pupil — amber detection core     -->
+  <!-- ============================================= -->
+
+  <!-- Pupil outer ring -->
+  <circle cx="256" cy="256" r="38" fill="url(#pupilGradient)" stroke="#00D4FF" stroke-width="1.5" stroke-opacity="0.7"/>
+
+  <!-- Amber detection indicator - inner hexagon -->
+  <polygon points="256,226 282,241 282,271 256,286 230,271 230,241"
+           fill="none" stroke="#FFB800" stroke-width="1.8" stroke-opacity="0.9"/>
+
+  <!-- Amber core glow -->
+  <circle cx="256" cy="256" r="16" fill="none" stroke="#FFB800" stroke-width="1.2" stroke-opacity="0.6"/>
+
+  <!-- Central amber dot - the detection point -->
+  <circle cx="256" cy="256" r="8" fill="#FFB800" fill-opacity="0.9" filter="url(#softGlow)"/>
+
+  <!-- Central bright point -->
+  <circle cx="256" cy="256" r="3" fill="#FFFFFF" fill-opacity="0.9"/>
+
+  <!-- ============================================== -->
+  <!-- LAYER 7: Eye contour highlights               -->
+  <!-- ============================================== -->
+
+  <!-- Upper eyelid highlight -->
+  <path d="M130 230 Q190 170 256 160 Q322 170 382 230"
+        fill="none" stroke="#00D4FF" stroke-width="0.8" stroke-opacity="0.3"/>
+
+  <!-- Lower eyelid highlight -->
+  <path d="M130 282 Q190 342 256 352 Q322 342 382 282"
+        fill="none" stroke="#00D4FF" stroke-width="0.8" stroke-opacity="0.3"/>
+
+  <!-- ============================================== -->
+  <!-- LAYER 8: Scanning/sweep lines                  -->
+  <!-- ============================================== -->
+
+  <!-- Horizontal scan line through eye -->
+  <line x1="92" y1="256" x2="420" y2="256" stroke="#00D4FF" stroke-width="0.5" stroke-opacity="0.2" clip-path="url(#outerEyeClip)"/>
+
+  <!-- Vertical scan line through eye -->
+  <line x1="256" y1="135" x2="256" y2="377" stroke="#00D4FF" stroke-width="0.5" stroke-opacity="0.2" clip-path="url(#outerEyeClip)"/>
+
+  <!-- ============================================== -->
+  <!-- LAYER 9: Outer decorative elements             -->
+  <!-- ============================================== -->
+
+  <!-- Top arc label area -->
+  <path d="M140 80 Q256 40 372 80" fill="none" stroke="#0A1628" stroke-width="1" stroke-opacity="0.3"/>
+
+  <!-- Small triangular indicators at top and bottom -->
+  <g fill="#FFB800" fill-opacity="0.7">
+    <!-- Top indicator -->
+    <polygon points="256,62 250,74 262,74"/>
+    <!-- Bottom indicator -->
+    <polygon points="256,450 250,438 262,438"/>
+  </g>
+
+  <!-- Side diamond indicators -->
+  <g fill="#00D4FF" fill-opacity="0.5">
+    <!-- Left indicator -->
+    <polygon points="62,256 70,250 78,256 70,262"/>
+    <!-- Right indicator -->
+    <polygon points="434,256 442,250 450,256 442,262"/>
+  </g>
+
+  <!-- ============================================== -->
+  <!-- LAYER 10: Fine geometric detail lines          -->
+  <!-- ============================================== -->
+
+  <!-- Subtle radial lines from center to inner ring -->
+  <g stroke="#00D4FF" stroke-width="0.4" stroke-opacity="0.15">
+    <line x1="256" y1="108" x2="256" y2="130"/>
+    <line x1="404" y1="256" x2="425" y2="256"/>
+    <line x1="256" y1="404" x2="256" y2="382"/>
+    <line x1="108" y1="256" x2="87" y2="256"/>
+  </g>
+
+</svg>
