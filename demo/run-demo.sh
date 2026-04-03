@@ -167,16 +167,11 @@ deploy_demo_resources() {
   $K apply -f "${DEMO_DIR}/policies/"
 
   if ! $K get secret openai-api-key -n "$KAGENT_NS" &>/dev/null; then
-    err "Secret 'openai-api-key' not found in namespace '$KAGENT_NS'."
-    err "Create it first:"
-    err ""
-    err "  kubectl create secret generic openai-api-key \\"
-    err "    -n $KAGENT_NS \\"
-    err "    --from-literal=Authorization=\"Bearer \$OPENAI_API_KEY\""
-    err ""
-    exit 1
+    info "Creating dummy API key secret (gateway handles routing, no real key needed)..."
+    $K create secret generic openai-api-key \
+      -n "$KAGENT_NS" \
+      --from-literal=Authorization="Bearer not-used"
   fi
-  info "API key secret found."
 
   info "Applying Kagent Agent + ModelConfig..."
   $K apply -f "${DEMO_DIR}/manifests/kagent-model-config.yaml"
