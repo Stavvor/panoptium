@@ -14,6 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// NOTE: Implemented but not yet wired into the operator. Will replace the
+// custom eBPF programs with Cilium Tetragon as the primary kernel event source,
+// consuming syscall events via gRPC and publishing them to the NATS event bus.
+
 package tetragon
 
 import (

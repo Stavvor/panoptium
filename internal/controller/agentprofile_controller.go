@@ -34,6 +34,10 @@ import (
 // AgentProfileReconciler reconciles a AgentProfile object.
 // It manages status conditions (Ready, Learning, BaselineEstablished),
 // tracks baseline health, and counts matching agents.
+//
+// NOTE: Status management is active but baselines are not yet consumed.
+// The anomaly detection engine (planned) will compare observed agent
+// behavior against these baselines to detect deviations.
 type AgentProfileReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme

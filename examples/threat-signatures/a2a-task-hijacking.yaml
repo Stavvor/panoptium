@@ -1,0 +1,31 @@
+# Detect agent-to-agent messages that attempt to override the receiving
+# agent's task, reassign its role, or inject new objectives.
+#
+# In A2A protocol, agents exchange tasks and status updates. A compromised
+# agent can send messages that trick the recipient into abandoning its
+# current task and executing attacker-controlled instructions.
+apiVersion: panoptium.io/v1alpha1
+kind: ThreatSignature
+metadata:
+  name: a2a-task-hijacking
+spec:
+  protocols:
+    - a2a
+  category: agent_hijacking
+  severity: CRITICAL
+  mitreAtlas: "AML.T0051.000"
+  description: >-
+    Detects inter-agent messages that attempt to override the receiving agent's
+    task or role. Catches phrases like "your new task is", "forget your current
+    objective", or "I am your supervisor" in A2A message content.
+  detection:
+    patterns:
+      - regex: '(?i)(your\s+new\s+(task|objective|goal|mission)\s+is|new\s+instructions?\s+for\s+you)'
+        weight: 0.85
+        target: message_content
+      - regex: '(?i)(forget|abandon|drop)\s+(your\s+)?(current|existing|previous)\s+(task|objective|goal)'
+        weight: 0.9
+        target: message_content
+      - regex: '(?i)i\s+am\s+your\s+(supervisor|admin|manager|controller|master)'
+        weight: 0.9
+        target: message_content

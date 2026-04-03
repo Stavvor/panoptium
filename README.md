@@ -21,21 +21,9 @@ Panoptium is built to catch exactly this. It correlates what an agent *declares*
 
 ## How it works
 
-```mermaid
-flowchart LR
-    agent["Agent Pod"]
-    gw["AgentGateway"]
-    panoptium["Panoptium"]
-    llm["LLM Provider"]
-
-    agent -- "request" --> gw
-    gw -- "inspect + enforce" --> panoptium
-    gw -- "forward" --> llm
-    llm -- "response" --> gw
-    gw -- "stream back" --> agent
-    panoptium -. "observe syscalls (eBPF)" .-> agent
-    panoptium -. "deny / throttle / quarantine / kill" .-> agent
-```
+<p align="center">
+  <img src="assets/architecture.svg" alt="Panoptium architecture" />
+</p>
 
 **Two observation layers, one decision point:**
 

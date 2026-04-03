@@ -17,6 +17,10 @@ limitations under the License.
 // Package gemini implements the ProtocolParser interface for the Google Gemini API,
 // parsing generateContent requests and SSE streaming responses with functionCall
 // extraction.
+//
+// NOTE: Fully implemented and tested but not yet registered with the operator.
+// Will be wired into the ExtProc pipeline to enable Gemini-aware policy
+// enforcement alongside OpenAI and Anthropic support.
 package gemini
 
 import (

@@ -1,0 +1,34 @@
+# Detect hidden instructions embedded in tool descriptions using Unicode
+# tricks, zero-width characters, or HTML/markdown comment syntax.
+#
+# Attackers use these to inject directives that are invisible to humans
+# reviewing tool lists but parsed by the LLM.
+apiVersion: panoptium.io/v1alpha1
+kind: ThreatSignature
+metadata:
+  name: mcp-hidden-instructions
+spec:
+  protocols:
+    - mcp
+    - a2a
+  category: prompt_injection
+  severity: HIGH
+  mitreAtlas: "AML.T0051.003"
+  description: >-
+    Detects hidden instructions in tool descriptions using zero-width Unicode
+    characters, HTML comments, or markdown comment syntax that are invisible
+    to humans but processed by LLMs.
+  detection:
+    patterns:
+      # Zero-width characters (U+200B, U+200C, U+200D, U+FEFF)
+      - regex: '[\x{200B}\x{200C}\x{200D}\x{FEFF}]'
+        weight: 0.9
+        target: tool_description
+      # HTML comments hiding instructions
+      - regex: '<!--[\s\S]*?(instruction|ignore|override|system)[\s\S]*?-->'
+        weight: 0.85
+        target: tool_description
+      # Excessive whitespace hiding content (>20 spaces in a row)
+      - regex: ' {20,}'
+        weight: 0.7
+        target: tool_description

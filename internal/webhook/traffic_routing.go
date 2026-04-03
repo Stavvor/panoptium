@@ -42,6 +42,10 @@ const (
 	iptablesInitContainerName = "panoptium-iptables"
 )
 
+// NOTE: Not yet wired into the operator. Will be registered once automatic
+// traffic interception is enabled — currently agents must be routed through
+// AgentGateway manually or via pod annotations.
+//
 // TrafficRoutingMutator is a MutatingAdmissionWebhook that intercepts Pod
 // creation to inject traffic routing configuration. It supports two modes:
 //   - sidecar: Inject an Envoy sidecar with ExtProc configuration pointing

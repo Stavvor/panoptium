@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// NOTE: Implemented but not yet wired. Translates raw Tetragon gRPC events
+// into Panoptium event bus format for consumption by the policy engine.
+
 package tetragon
 
 import (

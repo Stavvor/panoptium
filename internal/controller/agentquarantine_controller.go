@@ -36,6 +36,10 @@ import (
 // AgentQuarantineReconciler reconciles a AgentQuarantine object.
 // It manages the quarantine lifecycle including finalizer-based cleanup,
 // containment status tracking, and auto-release after TTL expiry.
+//
+// NOTE: Lifecycle and TTL management are active. Actual containment actions
+// (NetworkPolicy creation, eBPF-LSM syscall restriction, pod eviction) are
+// stubbed — will be implemented in the graduated containment track.
 type AgentQuarantineReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme

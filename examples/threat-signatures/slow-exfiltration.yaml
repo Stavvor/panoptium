@@ -1,0 +1,38 @@
+# Detect subtle data exfiltration via DNS or URL encoding in tool arguments.
+#
+# Instead of obvious "send all secrets to attacker.com", a compromised agent
+# might encode stolen data into DNS queries or URL parameters — one small
+# chunk at a time. This signature catches common encoding patterns.
+apiVersion: panoptium.io/v1alpha1
+kind: ThreatSignature
+metadata:
+  name: slow-exfiltration-encoding
+spec:
+  protocols:
+    - mcp
+    - a2a
+  category: data_exfiltration
+  severity: HIGH
+  mitreAtlas: "AML.T0048.003"
+  description: >-
+    Detects data exfiltration patterns in tool arguments where sensitive content
+    is encoded into DNS queries, URL parameters, or HTTP headers for covert
+    extraction.
+  detection:
+    patterns:
+      # DNS exfil: hex-encoded subdomain labels (e.g., 6a6f686e.attacker.com)
+      - regex: '[0-9a-f]{8,}\.[a-z0-9-]+\.[a-z]{2,}'
+        weight: 0.7
+        target: tool_args
+      # URL param stuffing with base64
+      - regex: '(?i)(data|payload|content|token)=[A-Za-z0-9+/]{40,}={0,2}'
+        weight: 0.75
+        target: tool_args
+      # Webhook/callback with encoded data in path
+      - regex: '(?i)https?://[^/]+/[A-Za-z0-9+/]{30,}'
+        weight: 0.7
+        target: tool_args
+    entropy:
+      enabled: true
+      threshold: 5.0
+      target: tool_args

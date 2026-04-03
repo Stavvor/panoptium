@@ -17,6 +17,10 @@ limitations under the License.
 // Package mcp implements the ProtocolParser interface for the Model Context Protocol
 // (MCP), parsing JSON-RPC 2.0 messages for tool operations, session initialization,
 // and tool poisoning detection.
+//
+// NOTE: Fully implemented and tested but not yet registered with the operator.
+// Will be wired into the ExtProc pipeline to enable MCP-aware policy enforcement
+// and tool poisoning detection.
 package mcp
 
 import (

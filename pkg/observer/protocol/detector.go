@@ -69,6 +69,10 @@ type DetectionResult struct {
 	Method string
 }
 
+// NOTE: Fully implemented and tested but not yet wired. Will be activated
+// when protocol parsers (MCP, A2A, Gemini) are registered with the operator
+// to auto-detect agent protocols from request metadata.
+//
 // ProtocolDetector implements a priority-based detection cascade that identifies
 // which protocol parser should handle a given request. The cascade order is:
 // annotation (1.0) > path (0.9) > Content-Type (0.7) > JSON-RPC (0.6) > fallback (0.1).

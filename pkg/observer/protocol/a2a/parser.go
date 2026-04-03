@@ -17,6 +17,10 @@ limitations under the License.
 // Package a2a implements the ProtocolParser interface for the Agent-to-Agent (A2A)
 // protocol, parsing JSON-RPC 2.0 messages for agent card discovery, task delegation,
 // and inter-agent communication.
+//
+// NOTE: Fully implemented and tested but not yet registered with the operator.
+// Will be wired into the ExtProc pipeline to enable A2A-aware policy enforcement
+// and inter-agent task hijacking detection.
 package a2a
 
 import (

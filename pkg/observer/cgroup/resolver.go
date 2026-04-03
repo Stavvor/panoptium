@@ -18,6 +18,10 @@ limitations under the License.
 // for the Panoptium observer. It serves as a supplementary enrichment layer
 // for cases where Tetragon metadata is insufficient (e.g., short-lived
 // containers, custom cgroup hierarchies).
+//
+// NOTE: Implemented but not yet wired. Will be activated alongside the
+// Tetragon integration to resolve container identity from cgroup paths
+// when Tetragon metadata is incomplete.
 package cgroup
 
 import (
