@@ -18,7 +18,6 @@ package extproc
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -161,16 +160,14 @@ func TestIdentityResolution_EnrolledPod(t *testing.T) {
 
 // TestIdentityResolution_UnknownSource_EnforcingMode verifies that in
 // enforcing mode, requests from unknown source pods (source IP not in PodCache)
-// are rejected with a 403 ImmediateResponse.
+// pass through with degraded identity. Network admission is delegated to
+// Kubernetes NetworkPolicy, not ExtProc.
 func TestIdentityResolution_UnknownSource_EnforcingMode(t *testing.T) {
 	bus, _, srv := setupEnforcementTestComponents(t, enforce.ModeEnforcing)
 	defer bus.Close()
 
 	// Do NOT register any pod in PodCache — the source IP is unknown
 
-	sub := bus.Subscribe("enforcement.unknown_source")
-	defer bus.Unsubscribe(sub)
-
 	client, cleanup := startTestServer(t, srv)
 	defer cleanup()
 
@@ -205,35 +202,28 @@ func TestIdentityResolution_UnknownSource_EnforcingMode(t *testing.T) {
 		t.Fatalf("failed to receive response: %v", err)
 	}
 
-	// In enforcing mode, unknown source pods should receive 403
-	ir := resp.GetImmediateResponse()
-	if ir == nil {
-		t.Fatal("expected ImmediateResponse for unknown source pod in enforcing mode")
+	// Unknown source pods should pass through (no ImmediateResponse).
+	// Network admission is handled by Kubernetes NetworkPolicy, not ExtProc.
+	if resp.GetImmediateResponse() != nil {
+		t.Fatal("unknown source pod should NOT receive ImmediateResponse; network admission is delegated to NetworkPolicy")
 	}
-
-	if ir.Status.Code != 403 {
-		t.Errorf("expected status 403, got %d", ir.Status.Code)
-	}
-
-	var body enforce.ErrorResponse
-	if err := json.Unmarshal(ir.Body, &body); err != nil {
-		t.Fatalf("failed to unmarshal error body: %v", err)
-	}
-	if body.Error != "unknown_source" {
-		t.Errorf("expected error 'unknown_source', got %q", body.Error)
+	if resp.GetRequestHeaders() == nil {
+		t.Fatal("expected RequestHeaders response (pass-through) for unknown source pod")
 	}
 }
 
 // TestIdentityResolution_UnknownSource_AuditMode verifies that in audit mode,
-// requests from unknown source pods pass through with a warning (no blocking),
-// and an enforcement.unknown_source event is emitted to the Event Bus.
+// requests from unknown source pods pass through with degraded identity and
+// NO enforcement.unknown_source event is emitted (that event type no longer
+// exists -- network admission is delegated to Kubernetes NetworkPolicy).
 func TestIdentityResolution_UnknownSource_AuditMode(t *testing.T) {
 	bus, _, srv := setupEnforcementTestComponents(t, enforce.ModeAudit)
 	defer bus.Close()
 
 	// Do NOT register any pod in PodCache — the source IP is unknown
 
-	sub := bus.Subscribe("enforcement.unknown_source")
+	// Subscribe to all events so we can verify no unknown_source event is emitted
+	sub := bus.Subscribe()
 	defer bus.Unsubscribe(sub)
 
 	client, cleanup := startTestServer(t, srv)
@@ -270,22 +260,20 @@ func TestIdentityResolution_UnknownSource_AuditMode(t *testing.T) {
 		t.Fatalf("failed to receive response: %v", err)
 	}
 
-	// In audit mode, unknown source pods should pass through (no ImmediateResponse)
+	// Unknown source pods should pass through (no ImmediateResponse)
 	if resp.GetImmediateResponse() != nil {
-		t.Fatal("unknown source pod in audit mode should NOT receive ImmediateResponse")
+		t.Fatal("unknown source pod should NOT receive ImmediateResponse")
 	}
 	if resp.GetRequestHeaders() == nil {
-		t.Fatal("expected RequestHeaders response (pass-through) in audit mode")
+		t.Fatal("expected RequestHeaders response (pass-through) for unknown source pod")
 	}
 
-	// Verify enforcement.unknown_source event was emitted
+	// Verify NO enforcement.unknown_source event was emitted
 	select {
 	case evt := <-sub.Events():
-		if evt.EventType() != "enforcement.unknown_source" {
-			t.Errorf("expected 'enforcement.unknown_source' event, got %q", evt.EventType())
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for enforcement.unknown_source event")
+		t.Fatalf("expected no events during header processing, but got event type %q", evt.EventType())
+	case <-time.After(200 * time.Millisecond):
+		// Good — no event emitted
 	}
 }
 

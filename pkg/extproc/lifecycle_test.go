@@ -754,8 +754,9 @@ func TestLifecycleManagerEnforcementMode(t *testing.T) {
 		t.Fatal("lifecycle manager did not become ready in time")
 	}
 
-	// The server should be in enforcing mode now
-	// We verify by sending a request from an unknown source pod - it should get 403
+	// The server should be in enforcing mode now.
+	// Unknown source pods should pass through — network admission is delegated
+	// to Kubernetes NetworkPolicy, not ExtProc.
 	conn, err := grpc.NewClient(
 		mgr.Addr().String(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -793,13 +794,12 @@ func TestLifecycleManagerEnforcementMode(t *testing.T) {
 		t.Fatalf("failed to receive response: %v", err)
 	}
 
-	// In enforcing mode, unknown source pods should get 403
-	ir := resp.GetImmediateResponse()
-	if ir == nil {
-		t.Fatal("expected ImmediateResponse for unknown source pod in enforcing mode")
+	// Unknown source pods should pass through (no ImmediateResponse)
+	if resp.GetImmediateResponse() != nil {
+		t.Fatal("unknown source pod should NOT receive ImmediateResponse; network admission is delegated to NetworkPolicy")
 	}
-	if ir.Status.Code != 403 {
-		t.Errorf("expected status 403, got %d", ir.Status.Code)
+	if resp.GetRequestHeaders() == nil {
+		t.Fatal("expected RequestHeaders response (pass-through) for unknown source pod")
 	}
 
 	cancel()
